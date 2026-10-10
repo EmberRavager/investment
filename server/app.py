@@ -26,7 +26,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ashare_pred.config import Config, apply_overrides  # noqa: E402
 from ashare_pred.models import list_models  # noqa: E402
-from ashare_pred.pipeline import analyze, rank, run, screen  # noqa: E402
+from ashare_pred.pipeline import analyze, compare, rank, run, screen  # noqa: E402
 from server.reflect import reflect, reflect_panel  # noqa: E402
 
 CONFIG_PATH = os.getenv("ASHARE_CONFIG", str(PROJECT_ROOT / "configs" / "default.yaml"))
@@ -75,6 +75,12 @@ class RankRequest(BaseModel):
 class ScreenRequest(BaseModel):
     top_n: int = 20
     min_amount: float = 1e8
+    config: Optional[Dict[str, Any]] = None
+    overrides: Optional[Dict[str, Any]] = None
+
+
+class CompareRequest(BaseModel):
+    models: Optional[List[str]] = None
     config: Optional[Dict[str, Any]] = None
     overrides: Optional[Dict[str, Any]] = None
 
@@ -184,6 +190,15 @@ def screen_stream(req: ScreenRequest):
     return _stream(
         lambda progress: screen(cfg, top_n=req.top_n, min_amount=req.min_amount, progress=progress)
     )
+
+
+@app.post("/api/compare/stream")
+def compare_stream(req: CompareRequest):
+    try:
+        cfg = _build_config(RunRequest(config=req.config, overrides=req.overrides))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
+    return _stream(lambda progress: compare(cfg, models=req.models, progress=progress))
 
 
 @app.post("/api/reflect")

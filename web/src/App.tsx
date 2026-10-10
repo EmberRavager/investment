@@ -5,6 +5,7 @@ import type { Health, RunResult } from "./types";
 import Onboarding from "./components/Onboarding";
 import Chooser from "./components/Chooser";
 import Screener from "./components/Screener";
+import ModelCompare from "./components/ModelCompare";
 import BigVerdict from "./components/BigVerdict";
 import MarketBoard from "./components/MarketBoard";
 import Kpis from "./components/Kpis";
@@ -159,6 +160,7 @@ export default function App() {
               loading={loading}
             />
             <Screener config={config} onPick={pickAndRun} />
+            <ModelCompare config={config} />
             <Glossary />
           </>
         ) : (

@@ -68,6 +68,8 @@ export const api = {
     streamNDJSON(`${BASE}/api/run/stream`, { config }, onEvent),
   screenStream: (config: any, topN: number, onEvent: (ev: any) => void) =>
     streamNDJSON(`${BASE}/api/screen/stream`, { config, top_n: topN }, onEvent),
+  compareStream: (config: any, onEvent: (ev: any) => void) =>
+    streamNDJSON(`${BASE}/api/compare/stream`, { config }, onEvent),
   screen: (config: any, topN = 15) =>
     postJSON<{ universe_size: number; shortlist_size: number; results: any[] }>(
       `${BASE}/api/screen`,

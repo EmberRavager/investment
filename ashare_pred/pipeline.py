@@ -19,7 +19,7 @@ from .config import Config
 from .data import load_prices
 from .features import build_features
 from .labels import make_labels
-from .metrics import equity_curve, summarize
+from .metrics import equity_curve, strategy_metrics, summarize
 
 
 def _setup_matplotlib():
@@ -311,6 +311,65 @@ def screen(
         "filters": {"top_n": top_n, "min_amount": min_amount, "max_pct": max_pct},
         "results": ranked,
     }
+
+
+def compare(cfg: Config, models: list = None, progress=None) -> Dict[str, Any]:
+    """对同一标的跑多个模型，返回「命中率」等指标对比（按命中率排序）。"""
+    from .models import list_models as _list_models
+
+    names = models or _list_models()
+
+    def emit(stage: str, pct: float, detail: str = ""):
+        if progress:
+            progress({"stage": stage, "pct": round(pct, 1), "detail": detail})
+
+    emit("准备数据", 3)
+    df = load_prices(cfg.data, verbose=False)
+    feats = build_features(df, cfg.features)
+    y_all, fwd_all = make_labels(df, cfg.labels)
+    y_all = y_all.reindex(feats.index)
+    fwd_all = fwd_all.reindex(feats.index)
+    valid = y_all.notna()
+    X, y, fwd = feats[valid], y_all[valid], fwd_all[valid]
+
+    trend = vol = None
+    if cfg.backtest.trend_filter:
+        trend = (df["close"] > df["close"].rolling(cfg.backtest.trend_ma).mean()).astype(float).reindex(X.index)
+    if cfg.backtest.vol_target > 0:
+        vol = (df["close"].pct_change().rolling(cfg.backtest.vol_lookback).std() * np.sqrt(252)).reindex(X.index)
+
+    rows = []
+    total = max(1, len(names))
+    for i, name in enumerate(names):
+        emit("对比模型", 5 + 90 * (i / total), name)
+        sub = Config.from_dict(cfg.to_dict())
+        sub.model.name = name
+        sub.model.params = {}
+        sub.model.scale = name in ("logistic", "svm", "knn")
+        try:
+            result = walk_forward(X, y, fwd, sub.model, sub.backtest, trend=trend, vol=vol, verbose=False)
+            m = summarize(result.proba, y, result.strategy_ret, result.benchmark_ret,
+                          result.position, sub.backtest.prob_threshold)
+            clf, st = m["classification"], m["strategy"]
+            rows.append({
+                "model": name,
+                "hit_rate": clf.get("accuracy"),
+                "auc": clf.get("roc_auc"),
+                "total_return": st.get("total_return"),
+                "annual_return": st.get("annual_return"),
+                "sharpe": st.get("sharpe"),
+                "calmar": st.get("calmar"),
+                "max_drawdown": st.get("max_drawdown"),
+                "num_trades": st.get("num_trades"),
+                "exposure": st.get("exposure"),
+            })
+        except Exception as exc:  # noqa: BLE001
+            rows.append({"model": name, "error": str(exc)})
+    emit("完成", 100)
+
+    bench = strategy_metrics(fwd.fillna(0.0), pd.Series(1.0, index=fwd.index))
+    rows.sort(key=lambda r: (r.get("hit_rate") is not None, r.get("hit_rate", -1)), reverse=True)
+    return {"symbol": cfg.data.symbol, "kind": cfg.data.kind, "results": rows, "benchmark": bench}
 
 
 def _round_list(s: pd.Series, nd: int = 6):

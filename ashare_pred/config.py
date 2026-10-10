@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, List
@@ -26,7 +27,7 @@ class DataConfig:
     kind: str = "stock"             # stock | index
     market: str = "sh"              # index 时用于拼接，如 sh000001 -> 000001
     start: str = "2018-01-01"
-    end: str = "2025-12-31"
+    end: str = ""                   # 留空 = 到今天（始终包含最新数据）
     adjust: str = "qfq"             # qfq(前复权) | hfq | ""(不复权)
     cache_dir: str = "data/cache"
     use_cache: bool = True
@@ -125,6 +126,9 @@ class Config:
         )
         if isinstance(raw.get("backtest"), dict) and "cost" in raw["backtest"]:
             cfg.backtest.cost = _build(CostConfig, raw["backtest"]["cost"])
+        # 结束日期留空/写"今天" => 取今天，保证包含最新数据
+        if not cfg.data.end or str(cfg.data.end).lower() in ("today", "now", "今天"):
+            cfg.data.end = datetime.date.today().isoformat()
         cfg.validate()
         return cfg
 

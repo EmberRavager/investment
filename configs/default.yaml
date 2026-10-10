@@ -4,7 +4,7 @@ data:
   kind: stock             # stock | index
   market: sh
   start: "2018-01-01"
-  end: "2025-12-31"
+  end: ""                 # 留空 = 到今天（始终包含最新数据）
   adjust: qfq             # qfq / hfq / ""
   cache_dir: data/cache
   use_cache: true

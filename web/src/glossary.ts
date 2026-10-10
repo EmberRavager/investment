@@ -1,5 +1,18 @@
 // 模型与名词的"人话"解释，供页面各处引用
 
+export const MODEL_LABEL: Record<string, string> = {
+  xgboost: "XGBoost（综合最好）",
+  lightgbm: "LightGBM（快）",
+  random_forest: "随机森林（稳）",
+  gradient_boosting: "梯度提升树",
+  hist_gradient_boosting: "直方图提升树",
+  extra_trees: "极端随机树",
+  logistic: "逻辑回归（最简单）",
+  svm: "支持向量机",
+  knn: "K 近邻",
+  gaussian_nb: "朴素贝叶斯",
+};
+
 export interface ModelInfo {
   what: string; // 是什么
   good: string; // 优点
