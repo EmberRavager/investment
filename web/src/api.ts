@@ -31,6 +31,11 @@ export const api = {
   models: () => getJSON<{ models: string[] }>(`${BASE}/api/models`),
   defaultConfig: () => getJSON<any>(`${BASE}/api/default-config`),
   run: (config: any) => postJSON<RunResult>(`${BASE}/api/run`, { config }),
+  screen: (config: any, topN = 15) =>
+    postJSON<{ universe_size: number; shortlist_size: number; results: any[] }>(
+      `${BASE}/api/screen`,
+      { config, top_n: topN }
+    ),
   reflect: (summary: any, question?: string, mode: "single" | "panel" = "single") =>
     postJSON<{ reflection?: string; panel?: Record<string, string> }>(
       `${BASE}/api/reflect`,

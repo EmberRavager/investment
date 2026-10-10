@@ -53,3 +53,15 @@ def load_prices(cfg: DataConfig, verbose: bool = True) -> pd.DataFrame:
         if verbose:
             print(f"[data] 已缓存 -> {path}")
     return df
+
+
+def load_market_snapshot(verbose: bool = True) -> pd.DataFrame:
+    """全市场 A 股实时快照（用于选股粗筛）。列名为中文，由调用方映射。"""
+    import akshare as ak
+
+    if verbose:
+        print("[data] 拉取全市场快照 stock_zh_a_spot_em ...")
+    snap = ak.stock_zh_a_spot_em()
+    if snap is None or len(snap) == 0:
+        raise RuntimeError("未取到全市场快照（akshare stock_zh_a_spot_em）")
+    return snap

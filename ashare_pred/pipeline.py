@@ -35,6 +35,77 @@ def _setup_matplotlib():
     return plt
 
 
+def _build_recommendation(df: pd.DataFrame, cfg: Config, last_prob: float, prev_holding: bool):
+    """把「模型概率 + 趋势 + 当前持仓」翻译成买/持/卖/观望的明确建议。"""
+    bt = cfg.backtest
+    threshold = bt.prob_threshold
+    trend_up = True
+    if bt.trend_filter:
+        ma = df["close"].rolling(bt.trend_ma).mean()
+        trend_up = bool(df["close"].iloc[-1] > ma.iloc[-1]) if not np.isnan(ma.iloc[-1]) else True
+
+    desired_long = (last_prob >= threshold) and trend_up
+    if desired_long and not prev_holding:
+        action = "买入"
+    elif desired_long and prev_holding:
+        action = "持有"
+    elif (not desired_long) and prev_holding:
+        action = "卖出"
+    else:
+        action = "观望"
+
+    reasons = [
+        f"模型看涨概率 {last_prob:.0%}，" + ("达到" if last_prob >= threshold else "未达到")
+        + f"出手门槛 {threshold:.0%}",
+    ]
+    if bt.trend_filter:
+        reasons.append(
+            "价格" + ("还在" if trend_up else "已跌破")
+            + f"{bt.trend_ma} 日均线" + ("（趋势向上）" if trend_up else "（趋势转弱）")
+        )
+    reasons.append("策略判定当前" + ("持仓中" if prev_holding else "空仓"))
+
+    sell_conditions = [f"看涨概率跌破 {threshold:.0%}（模型不再看好）"]
+    if bt.trend_filter:
+        sell_conditions.append(f"股价跌破 {bt.trend_ma} 日均线（趋势转弱）")
+    if bt.drawdown_stop > 0:
+        sell_conditions.append(f"账户从最高点回撤超过 {bt.drawdown_stop:.0%}（保护性止损）")
+    sell_conditions.append(f"持有满 {bt.min_hold} 天后信号转空即卖出（最短持有期）")
+
+    # 建议仓位（占本金比例）：波动越大买得越少
+    position_pct = 0.0
+    realized_vol = 0.0
+    if desired_long:
+        if bt.vol_target > 0:
+            vol = df["close"].pct_change().rolling(bt.vol_lookback).std() * (252 ** 0.5)
+            realized_vol = float(vol.iloc[-1]) if not np.isnan(vol.iloc[-1]) else 0.0
+            scale = min(bt.vol_target / realized_vol, bt.max_position) if realized_vol > 1e-6 else bt.max_position
+        else:
+            scale = bt.max_position
+        position_pct = round(scale, 3)
+
+    if not desired_long:
+        sizing_note = "当前不建议买入，暂不投入。"
+    elif position_pct >= 0.999:
+        sizing_note = "建议满仓（用全部计划资金）。"
+    else:
+        sizing_note = (
+            f"建议只用本金的约 {position_pct:.0%} 买入。"
+            f"（当前波动率越高、买得越少，让账户更平稳。）"
+        )
+
+    return {
+        "action": action,
+        "trend_up": trend_up,
+        "holding": prev_holding,
+        "reasons": reasons,
+        "sell_conditions": sell_conditions,
+        "position_pct": position_pct,
+        "realized_vol": round(realized_vol, 4),
+        "sizing_note": sizing_note,
+    }
+
+
 def analyze(cfg: Config, verbose: bool = True) -> Dict[str, Any]:
     """跑完整分析，返回 JSON 可序列化的结果字典。"""
     # 1) 数据
@@ -77,9 +148,11 @@ def analyze(cfg: Config, verbose: bool = True) -> Dict[str, Any]:
         result.position, cfg.backtest.prob_threshold,
     )
 
-    # 6) 最新信号
+    # 6) 最新信号 + 操作建议
     model, last_date, last_prob, signal = latest_signal(X_all, y_all, cfg.model, cfg.backtest)
     imp = feature_importance(model, list(X_all.columns))
+    prev_holding = bool(len(result.position) and result.position.iloc[-1] > 1e-9)
+    recommendation = _build_recommendation(df, cfg, float(last_prob), prev_holding)
 
     # 7) 组装结果
     idx = result.proba.index
@@ -102,6 +175,7 @@ def analyze(cfg: Config, verbose: bool = True) -> Dict[str, Any]:
         "last_date": last_date.strftime("%Y-%m-%d"),
         "last_prob": round(float(last_prob), 4),
         "signal": signal,
+        "recommendation": recommendation,
         "config": cfg.to_dict(),
         "metrics": metrics,
         "feature_importance": (
@@ -114,6 +188,80 @@ def analyze(cfg: Config, verbose: bool = True) -> Dict[str, Any]:
     if verbose:
         _print_summary(out)
     return out
+
+
+def rank(cfg: Config, items: list, verbose: bool = False) -> list:
+    """选股榜：对一批标的分别算「最新看涨概率」，按概率从高到低排序。"""
+    results = []
+    for it in items:
+        symbol = str(it.get("symbol"))
+        kind = it.get("kind", "stock")
+        name = it.get("name", symbol)
+        try:
+            sub = Config.from_dict(cfg.to_dict())
+            sub.data.symbol = symbol
+            sub.data.kind = kind
+            df = load_prices(sub.data, verbose=False)
+            feats = build_features(df, sub.features)
+            y_all, _ = make_labels(df, sub.labels)
+            y_all = y_all.reindex(feats.index)
+            _, _, prob, _ = latest_signal(feats, y_all, sub.model, sub.backtest)
+            rec = _build_recommendation(df, sub, float(prob), False)
+            results.append({
+                "symbol": symbol, "kind": kind, "name": name,
+                "prob": round(float(prob), 4),
+                "action": rec["action"],
+                "trend_up": rec["trend_up"],
+                "position_pct": rec["position_pct"],
+            })
+        except Exception as exc:  # noqa: BLE001
+            results.append({"symbol": symbol, "kind": kind, "name": name, "error": str(exc)})
+    results.sort(key=lambda r: r.get("prob", -1), reverse=True)
+    return results
+
+
+def screen(
+    cfg: Config,
+    top_n: int = 20,
+    min_amount: float = 1e8,
+    max_pct: float = 9.5,
+    verbose: bool = True,
+) -> Dict[str, Any]:
+    """全市场选股（两级漏斗）。
+
+    1) 粗筛：全市场快照，剔除 ST/退市/涨跌停/低流动性，按成交额取最活跃 top_n；
+    2) 精算：对这 top_n 只跑模型，按「看涨概率」排序。
+    """
+    from .data import load_market_snapshot
+
+    snap = load_market_snapshot(verbose=verbose).rename(
+        columns={"代码": "symbol", "名称": "name", "成交额": "amount", "涨跌幅": "pct_chg"}
+    )
+    n_all = len(snap)
+    snap["amount"] = pd.to_numeric(snap["amount"], errors="coerce")
+    snap["pct_chg"] = pd.to_numeric(snap["pct_chg"], errors="coerce")
+    snap = snap.dropna(subset=["symbol", "name"])
+    snap = snap[~snap["name"].astype(str).str.contains("ST|退", regex=True, na=False)]
+    snap = snap[snap["pct_chg"].abs() < max_pct]           # 剔除涨跌停
+    snap = snap[snap["amount"] >= min_amount]              # 剔除流动性差的
+    snap = snap.sort_values("amount", ascending=False).head(top_n)
+
+    items = []
+    for r in snap.itertuples():
+        s = str(r.symbol).split(".")[0]
+        if s.isdigit():
+            s = s.zfill(6)
+        items.append({"symbol": s, "name": str(r.name), "kind": "stock"})
+
+    if verbose:
+        print(f"[screen] 全市场 {n_all} 只 -> 粗筛后 {len(items)} 只，开始精算…")
+    ranked = rank(cfg, items, verbose=verbose)
+    return {
+        "universe_size": int(n_all),
+        "shortlist_size": len(items),
+        "filters": {"top_n": top_n, "min_amount": min_amount, "max_pct": max_pct},
+        "results": ranked,
+    }
 
 
 def _round_list(s: pd.Series, nd: int = 6):

@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CandlestickChart, ChevronRight, BarChart3 } from "lucide-react";
 import { api, downsample } from "./api";
 import type { Health, RunResult } from "./types";
-import ControlPanel from "./components/ControlPanel";
+import Onboarding from "./components/Onboarding";
+import Chooser from "./components/Chooser";
+import Screener from "./components/Screener";
+import BigVerdict from "./components/BigVerdict";
 import MarketBoard from "./components/MarketBoard";
 import Kpis from "./components/Kpis";
 import NavChart from "./components/NavChart";
@@ -9,6 +13,14 @@ import ProbChart from "./components/ProbChart";
 import FeatureImportance from "./components/FeatureImportance";
 import MetricsTable from "./components/MetricsTable";
 import ReflectionPanel from "./components/ReflectionPanel";
+import Glossary from "./components/Glossary";
+
+function setByPath(obj: any, path: string, value: any) {
+  const keys = path.split(".");
+  let cur = obj;
+  for (let i = 0; i < keys.length - 1; i++) cur = cur[keys[i]];
+  cur[keys[keys.length - 1]] = value;
+}
 
 export default function App() {
   const [config, setConfig] = useState<any>(null);
@@ -17,20 +29,24 @@ export default function App() {
   const [result, setResult] = useState<RunResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showIntro, setShowIntro] = useState(() => !localStorage.getItem("intro_done"));
+  const resultRef = useRef<HTMLDivElement | null>(null);
+  const configRef = useRef<any>(null);
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
 
   useEffect(() => {
     (async () => {
       try {
-        const [h, m, cfg] = await Promise.all([
-          api.health(),
-          api.models(),
-          api.defaultConfig(),
-        ]);
+        const [h, m, cfg] = await Promise.all([api.health(), api.models(), api.defaultConfig()]);
         setHealth(h);
         setModels(m.models);
         setConfig(cfg);
       } catch (e: any) {
-        setError(`无法连接后端 API：${e.message}\n请先在 investment 目录运行：\n  .venv/bin/uvicorn server.app:app --port 8000`);
+        setError(
+          `没连上后台。请先在 investment 目录运行：\n  .venv/bin/uvicorn server.app:app --port 8000\n\n原因：${e.message}`
+        );
       }
     })();
   }, []);
@@ -38,129 +54,151 @@ export default function App() {
   const update = useCallback((path: string, value: any) => {
     setConfig((c: any) => {
       const n = structuredClone(c);
-      const keys = path.split(".");
-      let cur = n;
-      for (let i = 0; i < keys.length - 1; i++) cur = cur[keys[i]];
-      cur[keys[keys.length - 1]] = value;
+      setByPath(n, path, value);
       return n;
     });
   }, []);
 
-  const run = useCallback(async () => {
-    if (!config) return;
+  const updateMany = useCallback((patch: Record<string, any>) => {
+    setConfig((c: any) => {
+      const n = structuredClone(c);
+      for (const [k, v] of Object.entries(patch)) setByPath(n, k, v);
+      return n;
+    });
+  }, []);
+
+  const run = useCallback(async (override?: any) => {
+    const cfg = override ?? configRef.current;
+    if (!cfg) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await api.run(config);
-      setResult(res);
+      const r = await api.run(cfg);
+      setResult(r);
+      setTimeout(
+        () => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        80
+      );
     } catch (e: any) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [config]);
+  }, []);
 
-  const chartData = useMemo(
-    () => (result ? downsample(result.series) : []),
-    [result]
+  // 从选股榜点某只股票，看它的详情
+  const pickAndRun = useCallback(
+    (symbol: string, kind: string) => {
+      const n = structuredClone(configRef.current);
+      setByPath(n, "data.symbol", symbol);
+      setByPath(n, "data.kind", kind);
+      setConfig(n);
+      run(n);
+    },
+    [run]
   );
 
+  const chartData = useMemo(() => (result ? downsample(result.series) : []), [result]);
+
+  const closeIntro = () => {
+    localStorage.setItem("intro_done", "1");
+    setShowIntro(false);
+  };
+
   return (
-    <div className="app">
-      <aside className="sidebar">
+    <>
+      <div className="topbar">
         <div className="brand">
-          <h1>A 股量化预测终端</h1>
-          <span className="tag">v0.1</span>
+          <div className="logo">
+            <CandlestickChart size={22} />
+          </div>
+          <div className="txt">
+            <h1>A 股智能助手</h1>
+            <p>选只股票，看看现在该不该买</p>
+          </div>
         </div>
-        {config ? (
-          <ControlPanel
-            config={config}
-            models={models}
-            update={update}
-            onRun={run}
-            loading={loading}
-          />
-        ) : (
-          <div className="hint">加载配置中…</div>
-        )}
-      </aside>
-
-      <main className="main">
-        <div className="status-bar">
-          <span>
+        <div className="statusbar">
+          <span className="item">
             <span className={`dot ${health ? "ok" : "bad"}`} />
-            引擎 {health ? "在线" : "离线"}
+            {health ? "引擎正常" : "未连接"}
           </span>
-          <span>
+          <span className="item">
             <span className={`dot ${health?.deepseek_configured ? "ok" : "bad"}`} />
-            反思模型 {health?.deepseek_configured ? "已配置" : "未配置 DEEPSEEK_API_KEY"}
+            AI 点评{health?.deepseek_configured ? "已开" : "未开"}
           </span>
-          {loading && (
-            <span>
-              <span className="dot busy" />
-              回测运行中…
-            </span>
-          )}
-          {result && (
-            <span>
-              样本 {result.summary.metrics.classification.n_samples} · 特征{" "}
-              {result.summary.n_features}
-            </span>
-          )}
         </div>
+      </div>
 
+      <div className="wrap">
         {error && <div className="error">{error}</div>}
 
-        <MarketBoard />
+        {showIntro && <Onboarding onClose={closeIntro} />}
 
-        {!result ? (
-          <div className="empty">
-            <div style={{ fontSize: 40 }}>◧</div>
-            <div>在左侧配置标的与模型，然后点击「运行回测」</div>
-          </div>
-        ) : (
+        {config ? (
           <>
-            <Kpis summary={result.summary} />
-            <div className="card">
-              <div className="head">
-                <span className="t">净值曲线 · 策略 vs 买入持有</span>
-                <span className="s">
-                  {result.summary.symbol} · {result.summary.model}
-                </span>
-              </div>
-              <NavChart data={chartData} />
-            </div>
-            <div className="grid-2">
-              <div className="card">
-                <div className="head">
-                  <span className="t">预测概率</span>
-                  <span className="s">
-                    阈值 {result.summary.config.backtest.prob_threshold}
-                  </span>
-                </div>
-                <ProbChart
-                  data={chartData}
-                  threshold={result.summary.config.backtest.prob_threshold}
-                />
-              </div>
-              <div className="card">
-                <div className="head">
-                  <span className="t">特征重要性 Top20</span>
-                </div>
-                <FeatureImportance data={result.summary.feature_importance} />
-              </div>
-            </div>
-            <div className="card">
-              <div className="head">
-                <span className="t">绩效对比</span>
-                <span className="s">红=优 · 风险调整后收益优先</span>
-              </div>
-              <MetricsTable metrics={result.summary.metrics} />
-            </div>
-            <ReflectionPanel summary={result.summary} health={health} />
+            <Chooser
+              config={config}
+              models={models}
+              update={update}
+              updateMany={updateMany}
+              onRun={() => run()}
+              loading={loading}
+            />
+            <Screener config={config} onPick={pickAndRun} />
+            <Glossary />
           </>
+        ) : (
+          !error && <div className="hint">正在加载…</div>
         )}
-      </main>
-    </div>
+
+        <div ref={resultRef}>
+          {result && (
+            <>
+              <BigVerdict summary={result.summary} />
+
+              <details className="panel">
+                <summary>
+                  <ChevronRight size={16} className="chev" />
+                  <BarChart3 size={17} />
+                  看看详细数据
+                  <span className="s">懂行的可以展开</span>
+                </summary>
+                <div className="inner">
+                  <Kpis summary={result.summary} />
+                  <div className="section-title">资金曲线：这套方法 vs 一直拿着</div>
+                  <div className="caption">红线＝这套方法的结果，蓝线＝一直拿着不动。线越高代表钱越多。</div>
+                  <NavChart data={chartData} />
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginTop: 20 }}>
+                    <div>
+                      <div className="section-title">每天的看涨把握</div>
+                      <div className="caption">
+                        绿线＝模型每天认为会涨的把握；超过橙色虚线（门槛）时才会考虑买入。
+                      </div>
+                      <ProbChart
+                        data={chartData}
+                        threshold={result.summary.config.backtest.prob_threshold}
+                      />
+                    </div>
+                    <div>
+                      <div className="section-title">模型最看重哪些指标</div>
+                      <div className="caption">模型做判断时最依赖哪些数据，越长的越重要。</div>
+                      <FeatureImportance data={result.summary.feature_importance} />
+                    </div>
+                  </div>
+                  <div className="section-title" style={{ marginTop: 22 }}>
+                    数字对比
+                  </div>
+                  <MetricsTable metrics={result.summary.metrics} />
+                </div>
+              </details>
+
+              <ReflectionPanel summary={result.summary} health={health} />
+            </>
+          )}
+        </div>
+
+        <MarketBoard />
+      </div>
+    </>
   );
 }

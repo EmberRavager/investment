@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,10 +22,24 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from ashare_pred.config import Config, apply_overrides  # noqa: E402
 from ashare_pred.models import list_models  # noqa: E402
-from ashare_pred.pipeline import analyze, run  # noqa: E402
+from ashare_pred.pipeline import analyze, rank, run, screen  # noqa: E402
 from server.reflect import reflect, reflect_panel  # noqa: E402
 
 CONFIG_PATH = os.getenv("ASHARE_CONFIG", str(PROJECT_ROOT / "configs" / "default.yaml"))
+
+#: 选股榜默认股票池（可被请求覆盖）
+DEFAULT_UNIVERSE = [
+    {"name": "贵州茅台", "symbol": "600519", "kind": "stock"},
+    {"name": "宁德时代", "symbol": "300750", "kind": "stock"},
+    {"name": "比亚迪", "symbol": "002594", "kind": "stock"},
+    {"name": "五粮液", "symbol": "000858", "kind": "stock"},
+    {"name": "招商银行", "symbol": "600036", "kind": "stock"},
+    {"name": "中国平安", "symbol": "601318", "kind": "stock"},
+    {"name": "长江电力", "symbol": "600900", "kind": "stock"},
+    {"name": "东方财富", "symbol": "300059", "kind": "stock"},
+    {"name": "隆基绿能", "symbol": "601012", "kind": "stock"},
+    {"name": "沪深300", "symbol": "000300", "kind": "index"},
+]
 
 app = FastAPI(title="A 股量化预测系统 API", version="0.1.0")
 app.add_middleware(
@@ -46,6 +60,19 @@ class ReflectRequest(BaseModel):
     summary: Dict[str, Any]
     question: Optional[str] = None
     mode: str = "single"   # single | panel
+
+
+class RankRequest(BaseModel):
+    symbols: Optional[List[Dict[str, Any]]] = None   # 自定义股票池
+    config: Optional[Dict[str, Any]] = None
+    overrides: Optional[Dict[str, Any]] = None
+
+
+class ScreenRequest(BaseModel):
+    top_n: int = 20
+    min_amount: float = 1e8
+    config: Optional[Dict[str, Any]] = None
+    overrides: Optional[Dict[str, Any]] = None
 
 
 @app.get("/api/health")
@@ -88,6 +115,25 @@ def run_endpoint(req: RunRequest):
             summary = run(cfg, verbose=True)
             return {"summary": summary}
         return analyze(cfg, verbose=True)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
+
+
+@app.post("/api/screen")
+def screen_endpoint(req: ScreenRequest):
+    try:
+        cfg = _build_config(RunRequest(config=req.config, overrides=req.overrides))
+        return screen(cfg, top_n=req.top_n, min_amount=req.min_amount)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
+
+
+@app.post("/api/rank")
+def rank_endpoint(req: RankRequest):
+    try:
+        cfg = _build_config(RunRequest(config=req.config, overrides=req.overrides))
+        items = req.symbols or DEFAULT_UNIVERSE
+        return {"results": rank(cfg, items)}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
 
