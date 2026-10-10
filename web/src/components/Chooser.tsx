@@ -220,6 +220,23 @@ export default function Chooser({ config, models, update, updateMany, onRun, loa
           <span className="n">3</span>
           <h2>开始分析</h2>
         </div>
+
+        <div className="field" style={{ marginBottom: 16 }}>
+          <label>预测未来多久？</label>
+          <div className="seg">
+            {[1, 5, 10, 20].map((h) => (
+              <button
+                key={h}
+                className={config.labels.horizon === h ? "on" : ""}
+                onClick={() => update("labels.horizon", h)}
+              >
+                {h === 1 ? "明天" : `${h} 天`}
+              </button>
+            ))}
+          </div>
+          <div className="hint">周期越长越稳（推荐 5~10 天）；越短越接近抛硬币。</div>
+        </div>
+
         <button className="bigbtn" onClick={onRun} disabled={loading}>
           {loading ? <Loader2 size={20} className="spin" /> : <Play size={20} />}
           {loading ? "正在分析，请稍等…" : "开始分析"}

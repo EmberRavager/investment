@@ -15,7 +15,7 @@ features:
   dropna: true
 
 labels:
-  horizon: 1              # 预测未来 1 个交易日方向
+  horizon: 5              # 预测未来 5 个交易日方向（≈一周，比日频稳）
   threshold: 0.0
   method: direction
 

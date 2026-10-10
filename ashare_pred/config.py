@@ -53,7 +53,7 @@ class FeatureConfig:
 
 @dataclass
 class LabelConfig:
-    horizon: int = 1                # 预测未来 N 根 K 线的方向
+    horizon: int = 5                # 预测未来 N 根 K 线的方向（5≈一周，比日频稳）
     threshold: float = 0.0          # 收益率超过该阈值判为 1(上涨)
     method: str = "direction"       # direction(涨跌分类) | return(回归，暂未用于分类模型)
 

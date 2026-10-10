@@ -24,6 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from ashare_pred import cross_section  # noqa: E402
 from ashare_pred.config import Config, apply_overrides  # noqa: E402
 from ashare_pred.models import list_models  # noqa: E402
 from ashare_pred.pipeline import analyze, compare, rank, run, screen  # noqa: E402
@@ -81,6 +82,15 @@ class ScreenRequest(BaseModel):
 
 class CompareRequest(BaseModel):
     models: Optional[List[str]] = None
+    config: Optional[Dict[str, Any]] = None
+    overrides: Optional[Dict[str, Any]] = None
+
+
+class SelectRequest(BaseModel):
+    symbols: Optional[List[str]] = None
+    top_k: int = 5
+    lookback: int = 60
+    rebalance: int = 20
     config: Optional[Dict[str, Any]] = None
     overrides: Optional[Dict[str, Any]] = None
 
@@ -199,6 +209,20 @@ def compare_stream(req: CompareRequest):
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
     return _stream(lambda progress: compare(cfg, models=req.models, progress=progress))
+
+
+@app.post("/api/select/stream")
+def select_stream(req: SelectRequest):
+    try:
+        cfg = _build_config(RunRequest(config=req.config, overrides=req.overrides))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
+    return _stream(
+        lambda progress: cross_section.run(
+            cfg, symbols=req.symbols, top_k=req.top_k,
+            lookback=req.lookback, rebalance=req.rebalance, progress=progress,
+        )
+    )
 
 
 @app.post("/api/reflect")
