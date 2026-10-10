@@ -95,7 +95,9 @@ export default function Chooser({ config, models, update, updateMany, onRun, loa
       try {
         if (!sdkRef.current) sdkRef.current = new StockSDK();
         const r: any[] = await sdkRef.current.search(q.trim());
-        setHits((r || []).slice(0, 8));
+        // 只要 A 股：保留 sh/sz/bj + 6 位数字（个股与指数），过滤港股/美股
+        const only = (r || []).filter((x: any) => /^(sh|sz|bj)\d{6}$/i.test(String(x.code)));
+        setHits(only.slice(0, 8));
         setOpen(true);
       } catch {
         setHits([]);
@@ -135,7 +137,7 @@ export default function Chooser({ config, models, update, updateMany, onRun, loa
         <div className="step-title">
           <span className="n">1</span>
           <h2>
-            想看哪只股票？ <span className="sub">打名字或代码都行</span>
+            想看哪只 A 股？ <span className="sub">打名字或代码都行</span>
           </h2>
         </div>
         <div className="search-wrap">
