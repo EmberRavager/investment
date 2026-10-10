@@ -9,6 +9,7 @@ from .registry import (
     register_model,
 )
 from . import builtin  # noqa: F401  触发内置模型注册
+from . import ensemble  # noqa: F401  触发集成模型注册
 
 __all__ = [
     "BaseModel",

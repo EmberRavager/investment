@@ -340,18 +340,26 @@ def compare(cfg: Config, models: list = None, progress=None) -> Dict[str, Any]:
 
     rows = []
     total = max(1, len(names))
-    for i, name in enumerate(names):
-        emit("对比模型", 5 + 90 * (i / total), name)
+    import os
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    _NJOBS = {
+        "random_forest", "extra_trees", "gradient_boosting",
+        "xgboost", "lightgbm", "knn", "ensemble", "stacking",
+    }
+
+    def run_one(name: str) -> Dict[str, Any]:
         sub = Config.from_dict(cfg.to_dict())
         sub.model.name = name
-        sub.model.params = {}
+        sub.model.params = {"n_jobs": 1} if name in _NJOBS else {}
         sub.model.scale = name in ("logistic", "svm", "knn")
         try:
-            result = walk_forward(X, y, fwd, sub.model, sub.backtest, trend=trend, vol=vol, verbose=False)
+            result = walk_forward(X, y, fwd, sub.model, sub.backtest,
+                                  trend=trend, vol=vol, verbose=False)
             m = summarize(result.proba, y, result.strategy_ret, result.benchmark_ret,
                           result.position, sub.backtest.prob_threshold)
             clf, st = m["classification"], m["strategy"]
-            rows.append({
+            return {
                 "model": name,
                 "hit_rate": clf.get("accuracy"),
                 "auc": clf.get("roc_auc"),
@@ -362,9 +370,18 @@ def compare(cfg: Config, models: list = None, progress=None) -> Dict[str, Any]:
                 "max_drawdown": st.get("max_drawdown"),
                 "num_trades": st.get("num_trades"),
                 "exposure": st.get("exposure"),
-            })
+            }
         except Exception as exc:  # noqa: BLE001
-            rows.append({"model": name, "error": str(exc)})
+            return {"model": name, "error": str(exc)}
+
+    workers = max(1, min(len(names), (os.cpu_count() or 4)))
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(run_one, n): n for n in names}
+        for fut in as_completed(futs):
+            rows.append(fut.result())
+            done += 1
+            emit("对比模型", 5 + 90 * (done / total), futs[fut])
     emit("完成", 100)
 
     bench = strategy_metrics(fwd.fillna(0.0), pd.Series(1.0, index=fwd.index))

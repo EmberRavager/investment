@@ -76,7 +76,7 @@ class CostConfig:
 class BacktestConfig:
     train_window: int = 500         # 滚动训练窗口（根）
     min_train: int = 250            # 首次开始交易前的最小训练样本数
-    retrain_every: int = 20         # 每隔多少根 K 线重新训练
+    retrain_every: int = 60          # 每隔多少根 K 线重新训练（越大越快）
     embargo: int = 0                # 训练集与测试集之间的隔离带，0 表示自动取 horizon
     prob_threshold: float = 0.55    # 预测概率高于该值才开仓(做多)
     # ---- 稳定优先的风控层 ----

@@ -1,6 +1,8 @@
 // 模型与名词的"人话"解释，供页面各处引用
 
 export const MODEL_LABEL: Record<string, string> = {
+  ensemble: "集成模型（多模型投票·推荐）",
+  stacking: "Stacking（元模型叠加）",
   xgboost: "XGBoost（综合最好）",
   lightgbm: "LightGBM（快）",
   random_forest: "随机森林（稳）",
@@ -21,6 +23,18 @@ export interface ModelInfo {
 }
 
 export const MODEL_INFO: Record<string, ModelInfo> = {
+  ensemble: {
+    what: "把几个不同的模型（逻辑回归+随机森林+XGBoost+LightGBM）组合起来，各给一个概率再平均。",
+    good: "取长补短，通常比单模型更稳、更不容易过拟合。",
+    bad: "跑得慢一些，解释性变弱（看不出单一原因）。",
+    use: "想要更稳、又不想纠结选哪个模型时——推荐首选。",
+  },
+  stacking: {
+    what: "让几个模型先各自预测，再训练一个“裁判模型”汇总它们的结果。",
+    good: "理论上比简单投票更强。",
+    bad: "更慢，且更容易过拟合，需要更多样本。",
+    use: "数据足够多、想再压榨一点准确度时尝试。",
+  },
   xgboost: {
     what: "把很多棵“决策树”叠起来做判断，是目前最流行的机器学习方法之一。",
     good: "综合准确度通常最好，速度也快。",

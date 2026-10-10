@@ -30,7 +30,7 @@ model:
 backtest:
   train_window: 500
   min_train: 250
-  retrain_every: 20
+  retrain_every: 60       # 重新训练频率（越大越快，60 ≈ 每季度）
   embargo: 0              # 0 表示自动取 labels.horizon
   prob_threshold: 0.50
   # 稳定优先的风控层
