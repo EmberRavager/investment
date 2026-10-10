@@ -14,6 +14,7 @@ import pandas as pd
 
 from .config import DataConfig
 from .providers import build_provider, normalize
+from .providers.base import no_proxy_env
 
 
 def _cache_path(cfg: DataConfig) -> Path:
@@ -61,7 +62,8 @@ def load_market_snapshot(verbose: bool = True) -> pd.DataFrame:
 
     if verbose:
         print("[data] 拉取全市场快照 stock_zh_a_spot_em ...")
-    snap = ak.stock_zh_a_spot_em()
+    with no_proxy_env():
+        snap = ak.stock_zh_a_spot_em()
     if snap is None or len(snap) == 0:
         raise RuntimeError("未取到全市场快照（akshare stock_zh_a_spot_em）")
     return snap

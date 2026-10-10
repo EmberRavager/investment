@@ -16,7 +16,7 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
-from .base import DataProvider
+from .base import DataProvider, no_proxy_env
 
 _ADJUST = {"qfq": "qfq", "hfq": "hfq", "": "none", "none": "none"}
 
@@ -67,7 +67,8 @@ class McpProvider(DataProvider):
         self.timeout = timeout
 
     def fetch_daily(self, symbol: str, kind: str, start: str, end: str, adjust: str) -> pd.DataFrame:
-        rows = asyncio.run(self._call(symbol, start, end, adjust))
+        with no_proxy_env():
+            rows = asyncio.run(self._call(symbol, start, end, adjust))
         if not rows:
             raise RuntimeError(f"MCP 未返回数据: {symbol} {start}~{end}")
         return pd.DataFrame(rows)

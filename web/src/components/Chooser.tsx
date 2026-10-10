@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { StockSDK } from "stock-sdk";
 import {
-  ShieldCheck, Scale, Zap, Play, Loader2, Search, ChevronRight, SlidersHorizontal, Sparkles, HelpCircle,
+  ShieldCheck, Scale, Zap, Play, Loader2, Search, ChevronRight, SlidersHorizontal, Sparkles, HelpCircle, Check,
 } from "lucide-react";
 import { MODEL_INFO } from "../glossary";
 
@@ -16,8 +16,7 @@ interface Props {
 
 const STYLES: Record<string, any> = {
   steady: {
-    label: "稳一点",
-    tag: "推荐",
+    label: "稳一点", tag: "推荐",
     desc: "亏得少、波动小，赚得也稳当。适合怕亏、想拿得安心的人。",
     Icon: ShieldCheck,
     patch: {
@@ -27,8 +26,7 @@ const STYLES: Record<string, any> = {
     },
   },
   balanced: {
-    label: "都行",
-    tag: "",
+    label: "都行", tag: "",
     desc: "收益和风险都适中，不偏不倚。拿不准就选它。",
     Icon: Scale,
     patch: {
@@ -38,8 +36,7 @@ const STYLES: Record<string, any> = {
     },
   },
   bold: {
-    label: "搏一搏",
-    tag: "",
+    label: "搏一搏", tag: "",
     desc: "想赚得多一点，但可能亏得也多。只适合能承受大起大落的人。",
     Icon: Zap,
     patch: {
@@ -76,15 +73,35 @@ export default function Chooser({ config, models, update, updateMany, onRun, loa
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
+  const [selName, setSelName] = useState("");
   const timer = useRef<any>(null);
+  const skipSearch = useRef(false);
+  const chosenSymbol = useRef(config.data.symbol);
 
   const activeStyle =
-    (Object.entries(STYLES).find(([, s]) => s.patch["backtest.drawdown_stop"] === config.backtest.drawdown_stop) ?? ["balanced"])[0];
+    (Object.entries(STYLES).find(
+      ([, s]) => s.patch["backtest.drawdown_stop"] === config.backtest.drawdown_stop
+    ) ?? ["balanced"])[0];
+
+  // 外部（如选股榜）改了标的时，清空搜索框，避免显示不一致
+  useEffect(() => {
+    if (config.data.symbol !== chosenSymbol.current) {
+      chosenSymbol.current = config.data.symbol;
+      skipSearch.current = true;
+      setQ("");
+      setSelName("");
+    }
+  }, [config.data.symbol]);
 
   useEffect(() => {
+    if (skipSearch.current) {
+      skipSearch.current = false;
+      return;
+    }
     if (timer.current) clearTimeout(timer.current);
     if (q.trim().length < 1) {
       setHits([]);
+      setOpen(false);
       return;
     }
     timer.current = setTimeout(async () => {
@@ -100,14 +117,23 @@ export default function Chooser({ config, models, update, updateMany, onRun, loa
     return () => timer.current && clearTimeout(timer.current);
   }, [q]);
 
-  const pick = (h: any) => {
-    const symbol = String(h.code).replace(/^(sh|sz|bj)/i, "");
-    const kind = h.category === "index" ? "index" : "stock";
+  const choose = (symbol: string, kind: string, name: string) => {
+    chosenSymbol.current = symbol;
     updateMany({ "data.symbol": symbol, "data.kind": kind });
-    setQ("");
+    setSelName(name);
+    skipSearch.current = true;
+    setQ(name);
     setHits([]);
     setOpen(false);
   };
+
+  const pick = (h: any) => {
+    const symbol = String(h.code).replace(/^(sh|sz|bj)/i, "");
+    const kind = h.category === "index" ? "index" : "stock";
+    choose(symbol, kind, h.name);
+  };
+
+  const displayName = selName && chosenSymbol.current === config.data.symbol ? selName : "";
 
   return (
     <>
@@ -126,6 +152,11 @@ export default function Chooser({ config, models, update, updateMany, onRun, loa
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onFocus={() => hits.length && setOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && /^\d{6}$/.test(q.trim())) {
+                  choose(q.trim(), config.data.kind, q.trim());
+                }
+              }}
               placeholder="例如：茅台、宁德时代、600519"
               style={{ paddingLeft: 42 }}
             />
@@ -145,19 +176,19 @@ export default function Chooser({ config, models, update, updateMany, onRun, loa
         <div className="chips">
           <span className="lead">不知道选啥？试试：</span>
           {HOT.map((c) => (
-            <button
-              key={c.symbol}
-              className="chip"
-              onClick={() => updateMany({ "data.symbol": c.symbol, "data.kind": c.kind })}
-            >
+            <button key={c.symbol} className="chip" onClick={() => choose(c.symbol, c.kind, c.name)}>
               {c.name}
             </button>
           ))}
         </div>
 
-        <div className="hint" style={{ marginTop: 12 }}>
-          当前已选：<b>{config.data.symbol}</b>
-          {config.data.kind === "index" ? "（指数）" : "（个股）"}
+        <div className="selected-bar">
+          <Check size={16} style={{ color: "var(--down)" }} />
+          当前已选：
+          <b>
+            {displayName ? `${displayName}　${config.data.symbol}` : config.data.symbol}
+          </b>
+          <span className="muted">{config.data.kind === "index" ? "指数" : "个股"}</span>
         </div>
       </div>
 
@@ -223,19 +254,18 @@ export default function Chooser({ config, models, update, updateMany, onRun, loa
             {MODEL_INFO[config.model.name] && (
               <div className="infobox">
                 <div style={{ fontWeight: 700, marginBottom: 5 }}>
-                  {MODEL_LABEL[config.model.name]?.split("（")[0] ?? config.model.name} 是什么？
+                  {(MODEL_LABEL[config.model.name] ?? config.model.name).split("（")[0]} 是什么？
                 </div>
-                <div className="li">· <b>做法：</b>{MODEL_INFO[config.model.name].what}</div>
-                <div className="li">· <b>优点：</b>{MODEL_INFO[config.model.name].good}</div>
-                <div className="li">· <b>缺点：</b>{MODEL_INFO[config.model.name].bad}</div>
-                <div className="li">· <b>何时用：</b>{MODEL_INFO[config.model.name].use}</div>
+                <div className="li"><b>做法：</b>{MODEL_INFO[config.model.name].what}</div>
+                <div className="li"><b>优点：</b>{MODEL_INFO[config.model.name].good}</div>
+                <div className="li"><b>缺点：</b>{MODEL_INFO[config.model.name].bad}</div>
+                <div className="li"><b>何时用：</b>{MODEL_INFO[config.model.name].use}</div>
               </div>
             )}
 
             <details className="panel" style={{ marginTop: 16, marginBottom: 4, boxShadow: "none" }}>
               <summary style={{ fontSize: 14, padding: "10px 0" }}>
                 <HelpCircle size={15} />
-                <span className="chev" style={{ display: "none" }} />
                 10 个模型分别是什么？
               </summary>
               <div style={{ fontSize: 13.5, color: "var(--text-2)", lineHeight: 1.7 }}>
@@ -247,7 +277,7 @@ export default function Chooser({ config, models, update, updateMany, onRun, loa
               </div>
             </details>
 
-            <div className="row2">
+            <div className="row2" style={{ marginTop: 12 }}>
               <div className="field">
                 <label>开始日期</label>
                 <input value={config.data.start} onChange={(e) => update("data.start", e.target.value)} />

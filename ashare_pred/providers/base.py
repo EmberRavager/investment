@@ -6,9 +6,54 @@
 
 from __future__ import annotations
 
+import contextlib
+import os
 from abc import ABC, abstractmethod
 
 import pandas as pd
+
+
+@contextlib.contextmanager
+def no_proxy_env():
+    """取行情数据时强制绕过代理（含 macOS 系统级代理）。
+
+    只设 no_proxy='*' 不够：requests 不把 '*' 当通配符，且删掉环境变量后
+    macOS 会退回系统代理设置。这里直接把 requests 读取代理的函数临时置空，
+    保证数据请求直连；退出后恢复，不影响 DeepSeek 等需要走代理的调用。
+    """
+    saved_lower, saved_upper = os.environ.get("no_proxy"), os.environ.get("NO_PROXY")
+    os.environ["no_proxy"] = "*"
+    os.environ["NO_PROXY"] = "*"
+
+    restore = []
+    try:
+        import requests.utils as ru
+
+        restore.append((ru, "getproxies", ru.getproxies))
+        ru.getproxies = lambda: {}
+    except Exception:  # pragma: no cover
+        pass
+    try:
+        import urllib.request as ur
+
+        restore.append((ur, "getproxies", ur.getproxies))
+        ur.getproxies = lambda: {}
+    except Exception:  # pragma: no cover
+        pass
+
+    try:
+        yield
+    finally:
+        for mod, attr, orig in restore:
+            setattr(mod, attr, orig)
+        if saved_lower is None:
+            os.environ.pop("no_proxy", None)
+        else:
+            os.environ["no_proxy"] = saved_lower
+        if saved_upper is None:
+            os.environ.pop("NO_PROXY", None)
+        else:
+            os.environ["NO_PROXY"] = saved_upper
 
 _CN_TO_EN = {
     "日期": "date",
