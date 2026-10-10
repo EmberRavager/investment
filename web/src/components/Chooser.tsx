@@ -115,10 +115,16 @@ export default function Chooser({ config, models, update, updateMany, onRun, loa
   };
 
   const pick = (h: any) => {
-    const symbol = String(h.code).replace(/^(sh|sz|bj)/i, "");
-    const kind = h.category === "index" ? "index" : "stock";
+    const raw = String(h.code).toLowerCase();
+    let kind = "stock";
+    if (raw.startsWith("hk")) kind = "hk";
+    else if (h.category === "index") kind = "index";
+    const symbol = raw.replace(/^(sh|sz|bj|hk)/, "");
     choose(symbol, kind, h.name);
   };
+
+  const kindLabel =
+    config.data.kind === "index" ? "指数" : config.data.kind === "hk" ? "港股" : "个股";
 
   const displayName = selName && chosenSymbol.current === config.data.symbol ? selName : "";
 
@@ -140,9 +146,10 @@ export default function Chooser({ config, models, update, updateMany, onRun, loa
               onChange={(e) => setQ(e.target.value)}
               onFocus={() => hits.length && setOpen(true)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && /^\d{6}$/.test(q.trim())) {
-                  choose(q.trim(), config.data.kind, q.trim());
-                }
+                if (e.key !== "Enter") return;
+                const t = q.trim().toLowerCase();
+                if (/^\d{6}$/.test(t)) choose(t, "stock", t);
+                else if (/^hk\d{4,5}$/.test(t)) choose(t.replace(/^hk/, ""), "hk", t);
               }}
               placeholder="例如：茅台、宁德时代、600519"
               style={{ paddingLeft: 42 }}
@@ -175,7 +182,7 @@ export default function Chooser({ config, models, update, updateMany, onRun, loa
           <b>
             {displayName ? `${displayName}　${config.data.symbol}` : config.data.symbol}
           </b>
-          <span className="muted">{config.data.kind === "index" ? "指数" : "个股"}</span>
+          <span className="muted">{kindLabel}</span>
         </div>
       </div>
 

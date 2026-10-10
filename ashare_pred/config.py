@@ -24,7 +24,7 @@ def _build(cls, raw: Dict[str, Any]):
 @dataclass
 class DataConfig:
     symbol: str = "600519"          # 股票/指数代码，纯数字
-    kind: str = "stock"             # stock | index
+    kind: str = "stock"             # stock | index | hk
     market: str = "sh"              # index 时用于拼接，如 sh000001 -> 000001
     start: str = "2018-01-01"
     end: str = ""                   # 留空 = 到今天（始终包含最新数据）
