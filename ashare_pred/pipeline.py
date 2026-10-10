@@ -106,12 +106,19 @@ def _build_recommendation(df: pd.DataFrame, cfg: Config, last_prob: float, prev_
     }
 
 
-def analyze(cfg: Config, verbose: bool = True) -> Dict[str, Any]:
-    """跑完整分析，返回 JSON 可序列化的结果字典。"""
+def analyze(cfg: Config, verbose: bool = True, progress=None) -> Dict[str, Any]:
+    """跑完整分析，返回 JSON 可序列化的结果字典。progress 为可选进度回调。"""
+
+    def emit(stage: str, pct: float, detail: str = ""):
+        if progress:
+            progress({"stage": stage, "pct": round(pct, 1), "detail": detail})
+
     # 1) 数据
+    emit("下载历史数据", 3)
     df = load_prices(cfg.data, verbose=verbose)
 
     # 2) 特征 & 标签
+    emit("计算技术指标", 12)
     feats = build_features(df, cfg.features)
     y_all, fwd_all = make_labels(df, cfg.labels)
     y_all = y_all.reindex(feats.index)
@@ -138,15 +145,38 @@ def analyze(cfg: Config, verbose: bool = True) -> Dict[str, Any]:
         vol = vol.reindex(X.index)
 
     # 4) 滚动回测
+    emit("模型滚动训练", 35)
     result = walk_forward(
-        X, y, fwd, cfg.model, cfg.backtest, trend=trend, vol=vol, verbose=verbose
+        X, y, fwd, cfg.model, cfg.backtest, trend=trend, vol=vol,
+        progress=(lambda f: emit("模型滚动训练", 35 + f * 50)) if progress else None,
+        verbose=verbose,
     )
+    emit("评估绩效", 92)
 
     # 5) 指标
     metrics = summarize(
         result.proba, y, result.strategy_ret, result.benchmark_ret,
         result.position, cfg.backtest.prob_threshold,
     )
+
+    # 5b) 预测战绩记录：每次预测方向 vs 实际结果，累计命中率
+    recent = []
+    mask = result.proba.notna() & y.notna()
+    p_ok, y_ok = result.proba[mask], y[mask]
+    for d in p_ok.index[-20:]:
+        pred_up = bool(p_ok.loc[d] >= 0.5)
+        act_up = bool(y_ok.loc[d] >= 0.5)
+        recent.append({
+            "date": d.strftime("%Y-%m-%d"),
+            "pred": "涨" if pred_up else "跌",
+            "actual": "涨" if act_up else "跌",
+            "correct": pred_up == act_up,
+        })
+    track_record = {
+        "hit_rate": metrics["classification"].get("accuracy"),
+        "n": int(mask.sum()),
+        "recent": recent,
+    }
 
     # 6) 最新信号 + 操作建议
     model, last_date, last_prob, signal = latest_signal(X_all, y_all, cfg.model, cfg.backtest)
@@ -176,6 +206,7 @@ def analyze(cfg: Config, verbose: bool = True) -> Dict[str, Any]:
         "last_prob": round(float(last_prob), 4),
         "signal": signal,
         "recommendation": recommendation,
+        "track_record": track_record,
         "config": cfg.to_dict(),
         "metrics": metrics,
         "feature_importance": (
@@ -185,15 +216,19 @@ def analyze(cfg: Config, verbose: bool = True) -> Dict[str, Any]:
     }
 
     out = {"summary": summary, "series": series}
+    emit("完成", 100)
     if verbose:
         _print_summary(out)
     return out
 
 
-def rank(cfg: Config, items: list, verbose: bool = False) -> list:
+def rank(cfg: Config, items: list, verbose: bool = False, on_item=None) -> list:
     """选股榜：对一批标的分别算「最新看涨概率」，按概率从高到低排序。"""
     results = []
-    for it in items:
+    total = max(1, len(items))
+    for idx, it in enumerate(items):
+        if on_item:
+            on_item(idx, total, str(it.get("name")))
         symbol = str(it.get("symbol"))
         kind = it.get("kind", "stock")
         name = it.get("name", symbol)
@@ -216,6 +251,8 @@ def rank(cfg: Config, items: list, verbose: bool = False) -> list:
             })
         except Exception as exc:  # noqa: BLE001
             results.append({"symbol": symbol, "kind": kind, "name": name, "error": str(exc)})
+        if on_item:
+            on_item(idx + 1, total, name)
     results.sort(key=lambda r: r.get("prob", -1), reverse=True)
     return results
 
@@ -226,6 +263,7 @@ def screen(
     min_amount: float = 1e8,
     max_pct: float = 9.5,
     verbose: bool = True,
+    progress=None,
 ) -> Dict[str, Any]:
     """全市场选股（两级漏斗）。
 
@@ -234,10 +272,16 @@ def screen(
     """
     from .data import load_market_snapshot
 
+    def emit(stage: str, pct: float, detail: str = ""):
+        if progress:
+            progress({"stage": stage, "pct": round(pct, 1), "detail": detail})
+
+    emit("拉取全市场快照", 5)
     snap = load_market_snapshot(verbose=verbose).rename(
         columns={"代码": "symbol", "名称": "name", "成交额": "amount", "涨跌幅": "pct_chg"}
     )
     n_all = len(snap)
+    emit("粗筛候选股", 20)
     snap["amount"] = pd.to_numeric(snap["amount"], errors="coerce")
     snap["pct_chg"] = pd.to_numeric(snap["pct_chg"], errors="coerce")
     snap = snap.dropna(subset=["symbol", "name"])
@@ -255,7 +299,12 @@ def screen(
 
     if verbose:
         print(f"[screen] 全市场 {n_all} 只 -> 粗筛后 {len(items)} 只，开始精算…")
-    ranked = rank(cfg, items, verbose=verbose)
+
+    on_item = (
+        (lambda i, t, n: emit("逐只精算", 25 + 70 * (i / max(1, t)), n)) if progress else None
+    )
+    ranked = rank(cfg, items, verbose=verbose, on_item=on_item)
+    emit("完成", 100)
     return {
         "universe_size": int(n_all),
         "shortlist_size": len(items),

@@ -26,11 +26,48 @@ async function postJSON<T>(url: string, body: unknown): Promise<T> {
   return r.json();
 }
 
+async function streamNDJSON(url: string, body: unknown, onEvent: (ev: any) => void) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    let msg = await r.text();
+    try {
+      msg = JSON.parse(msg).detail ?? msg;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg);
+  }
+  const reader = r.body!.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (line) onEvent(JSON.parse(line));
+    }
+  }
+  if (buf.trim()) onEvent(JSON.parse(buf));
+}
+
 export const api = {
   health: () => getJSON<Health>(`${BASE}/api/health`),
   models: () => getJSON<{ models: string[] }>(`${BASE}/api/models`),
   defaultConfig: () => getJSON<any>(`${BASE}/api/default-config`),
   run: (config: any) => postJSON<RunResult>(`${BASE}/api/run`, { config }),
+  // 流式：边跑边回报进度 {progress:{stage,pct}}，结束回报 {done,result}
+  runStream: (config: any, onEvent: (ev: any) => void) =>
+    streamNDJSON(`${BASE}/api/run/stream`, { config }, onEvent),
+  screenStream: (config: any, topN: number, onEvent: (ev: any) => void) =>
+    streamNDJSON(`${BASE}/api/screen/stream`, { config, top_n: topN }, onEvent),
   screen: (config: any, topN = 15) =>
     postJSON<{ universe_size: number; shortlist_size: number; results: any[] }>(
       `${BASE}/api/screen`,

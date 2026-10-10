@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Radar, Loader2, ChevronRight, AlertTriangle } from "lucide-react";
 import { api } from "../api";
+import Progress from "./Progress";
 
 interface Row {
   symbol: string;
@@ -29,17 +30,28 @@ export default function Screener({
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<{ universe_size: number; shortlist_size: number; results: Row[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ stage: string; pct: number } | null>(null);
 
   const run = async () => {
     setLoading(true);
     setErr(null);
     setData(null);
+    setProgress({ stage: "准备中", pct: 0 });
+    let result: any = null;
+    let error: string | null = null;
     try {
-      setData(await api.screen(config, 15));
+      await api.screenStream(config, 15, (ev: any) => {
+        if (ev.progress) setProgress(ev.progress);
+        else if (ev.done) result = ev.result;
+        else if (ev.error) error = ev.error;
+      });
+      if (error) throw new Error(error);
+      setData(result);
     } catch (e: any) {
       setErr(e.message);
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   };
 
@@ -64,9 +76,9 @@ export default function Screener({
         {loading ? "正在扫描全市场，稍等…" : "扫一遍，看看有哪些机会"}
       </button>
 
-      {loading && (
-        <div className="hint" style={{ marginTop: 10 }}>
-          第一次会慢一些（要下载多只股票的历史数据），之后有缓存会快很多。
+      {loading && progress && (
+        <div style={{ marginTop: 14 }}>
+          <Progress stage={progress.stage} pct={progress.pct} />
         </div>
       )}
 

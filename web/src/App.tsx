@@ -14,6 +14,8 @@ import FeatureImportance from "./components/FeatureImportance";
 import MetricsTable from "./components/MetricsTable";
 import ReflectionPanel from "./components/ReflectionPanel";
 import Glossary from "./components/Glossary";
+import Progress from "./components/Progress";
+import TrackRecord from "./components/TrackRecord";
 
 function setByPath(obj: any, path: string, value: any) {
   const keys = path.split(".");
@@ -30,6 +32,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showIntro, setShowIntro] = useState(() => !localStorage.getItem("intro_done"));
+  const [progress, setProgress] = useState<{ stage: string; pct: number } | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
   const configRef = useRef<any>(null);
   useEffect(() => {
@@ -72,9 +75,17 @@ export default function App() {
     if (!cfg) return;
     setLoading(true);
     setError(null);
+    setProgress({ stage: "准备中", pct: 0 });
+    let result: any = null;
+    let err: string | null = null;
     try {
-      const r = await api.run(cfg);
-      setResult(r);
+      await api.runStream(cfg, (ev: any) => {
+        if (ev.progress) setProgress(ev.progress);
+        else if (ev.done) result = ev.result;
+        else if (ev.error) err = ev.error;
+      });
+      if (err) throw new Error(err);
+      setResult(result);
       setTimeout(
         () => resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
         80
@@ -83,6 +94,7 @@ export default function App() {
       setError(e.message);
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   }, []);
 
@@ -131,6 +143,8 @@ export default function App() {
 
       <div className="wrap">
         {error && <div className="error">{error}</div>}
+
+        {loading && progress && <Progress stage={progress.stage} pct={progress.pct} />}
 
         {showIntro && <Onboarding onClose={closeIntro} />}
 
@@ -192,6 +206,7 @@ export default function App() {
                 </div>
               </details>
 
+              <TrackRecord summary={result.summary} />
               <ReflectionPanel summary={result.summary} health={health} />
             </>
           )}

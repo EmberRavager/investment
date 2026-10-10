@@ -41,11 +41,13 @@ def walk_forward(
     bt_cfg: BacktestConfig,
     trend: Optional[pd.Series] = None,
     vol: Optional[pd.Series] = None,
+    progress=None,
     verbose: bool = True,
 ) -> BacktestResult:
     """在特征矩阵 X 上做滚动训练，返回每期概率与策略收益。
 
     trend / vol 为可选的、与 X 同索引的因果序列（趋势过滤、已实现波动率）。
+    progress(frac) 会在滚动训练过程中被调用，frac 为本次循环的完成比例(0~1)。
     """
     n = len(X)
     # 训练集与测试点之间的隔离带；config.validate 已保证 embargo >= horizon
@@ -60,6 +62,8 @@ def walk_forward(
     n_fits = 0
 
     start = min(bt_cfg.min_train + embargo, n)
+    span = max(1, n - start)
+    step = max(1, span // 40)
 
     for i in range(start, n):
         if model is None or (i - last_fit_at) >= bt_cfg.retrain_every:
@@ -73,6 +77,12 @@ def walk_forward(
             n_fits += 1
 
         proba.iloc[i] = float(model.predict_proba(Xv[i : i + 1])[:, 1][0])
+
+        if progress is not None and ((i - start) % step == 0):
+            progress((i - start) / span)
+
+    if progress is not None:
+        progress(1.0)
 
     if verbose:
         print(f"[backtest] 滚动训练次数={n_fits}，有效预测点={int(proba.notna().sum())}/{n}")

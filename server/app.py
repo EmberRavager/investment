@@ -7,13 +7,17 @@
 
 from __future__ import annotations
 
+import json
 import os
+import queue
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -136,6 +140,50 @@ def rank_endpoint(req: RankRequest):
         return {"results": rank(cfg, items)}
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
+
+
+def _stream(runner):
+    """把 runner(progress) 放到线程里执行，以 NDJSON 流式返回进度与最终结果。"""
+    q: "queue.Queue" = queue.Queue()
+
+    def worker():
+        try:
+            result = runner(lambda ev: q.put({"progress": ev}))
+            q.put({"done": True, "result": result})
+        except Exception as exc:  # noqa: BLE001
+            q.put({"error": f"{type(exc).__name__}: {exc}"})
+        finally:
+            q.put(None)
+
+    def gen():
+        threading.Thread(target=worker, daemon=True).start()
+        while True:
+            ev = q.get()
+            if ev is None:
+                break
+            yield json.dumps(ev, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(gen(), media_type="application/x-ndjson")
+
+
+@app.post("/api/run/stream")
+def run_stream(req: RunRequest):
+    try:
+        cfg = _build_config(req)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
+    return _stream(lambda progress: analyze(cfg, verbose=True, progress=progress))
+
+
+@app.post("/api/screen/stream")
+def screen_stream(req: ScreenRequest):
+    try:
+        cfg = _build_config(RunRequest(config=req.config, overrides=req.overrides))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
+    return _stream(
+        lambda progress: screen(cfg, top_n=req.top_n, min_amount=req.min_amount, progress=progress)
+    )
 
 
 @app.post("/api/reflect")
