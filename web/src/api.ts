@@ -26,6 +26,26 @@ async function postJSON<T>(url: string, body: unknown): Promise<T> {
   return r.json();
 }
 
+async function delJSON<T>(url: string): Promise<T> {
+  const r = await fetch(url, { method: "DELETE" });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function putJSON<T>(url: string, body: unknown): Promise<T> {
+  const r = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    let msg = await r.text();
+    try { msg = JSON.parse(msg).detail ?? msg; } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
 async function streamNDJSON(url: string, body: unknown, onEvent: (ev: any) => void) {
   const r = await fetch(url, {
     method: "POST",
@@ -80,6 +100,50 @@ export const api = {
       `${BASE}/api/reflect`,
       { summary, question, mode }
     ),
+  strategyParse: (text: string) =>
+    postJSON<{
+      spec: any;
+      warnings: string[];
+      source: "ai" | "rule";
+      rationale: string;
+      rules: { kind: string; text: string }[];
+    }>(`${BASE}/api/strategy/parse`, { text }),
+  strategyRun: (spec: any, opts: { initial_cash?: number; start?: string; persist?: boolean } = {}) =>
+    postJSON<any>(`${BASE}/api/strategy/run`, { spec, persist: false, ...opts }),
+  strategies: () => getJSON<{ strategies: any[] }>(`${BASE}/api/strategies`),
+  strategySignals: (spec: any, symbols: string[]) =>
+    postJSON<{ signals: any[]; warnings: string[] }>(`${BASE}/api/strategy/signals`, { spec, symbols }),
+  strategyDetail: (id: number) => getJSON<{ strategy: any; runs: any[] }>(`${BASE}/api/strategies/${id}`),
+  strategySave: (spec: any, opts: { name?: string; description?: string; source?: string } = {}) =>
+    postJSON<{ strategy_id: number }>(`${BASE}/api/strategies`, { spec, ...opts }),
+  presets: () => getJSON<{ presets: any[] }>(`${BASE}/api/presets`),
+  seedPresets: () => postJSON<{ added: number }>(`${BASE}/api/strategies/seed`, {}),
+  dedupeStrategies: () => postJSON<{ removed: number }>(`${BASE}/api/strategies/dedupe`, {}),
+  deleteStrategy: (id: number) => delJSON<{ ok: boolean }>(`${BASE}/api/strategies/${id}`),
+  updateStrategy: (id: number, spec: any, note = "") =>
+    putJSON<{ version: number }>(`${BASE}/api/strategies/${id}`, { spec, note }),
+  deleteStrategies: (ids: number[]) => postJSON<{ deleted: number }>(`${BASE}/api/strategies/delete`, ids),
+  strategyDiscoverStream: (
+    opts: { symbol: string; initial_cash?: number; top_k?: number; start?: string },
+    onEvent: (ev: any) => void
+  ) => streamNDJSON(`${BASE}/api/strategy/discover/stream`, opts, onEvent),
+  xsecStream: (
+    opts: { symbols?: string[]; universe?: string; index?: string; universe_size?: number; top_k?: number; horizon?: number; rebalance?: number; train_window?: number; retrain?: number; initial_cash?: number; model?: string },
+    onEvent: (ev: any) => void
+  ) => streamNDJSON(`${BASE}/api/xsec/stream`, opts, onEvent),
+  stockNames: (symbols: string) =>
+    getJSON<{ names: Record<string, string> }>(`${BASE}/api/stock/names?symbols=${encodeURIComponent(symbols)}`),
+  stockSearch: (q: string, limit = 20) =>
+    getJSON<{ results: { symbol: string; name: string }[] }>(
+      `${BASE}/api/stock/search?q=${encodeURIComponent(q)}&limit=${limit}`
+    ),
+  strategyScreen: (spec: any, opts: { top_n?: number; min_amount?: number; symbols?: string[]; cash?: number; universe?: string } = {}) =>
+    postJSON<any>(`${BASE}/api/strategy/screen`, { spec, ...opts }),
+  strategyScreenStream: (
+    spec: any,
+    opts: { top_n?: number; min_amount?: number; symbols?: string[]; cash?: number; universe?: string },
+    onEvent: (ev: any) => void
+  ) => streamNDJSON(`${BASE}/api/strategy/screen/stream`, { spec, ...opts }, onEvent),
 };
 
 /** 图表点太多会拖慢渲染，按步长抽稀（保留首尾）。 */

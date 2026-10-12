@@ -6,7 +6,10 @@ __pycache__/
 
 # 数据与产物
 data/cache/
+data/*.db
+data/*.db-journal
 outputs/
+.pytest_cache/
 
 # Node
 web/node_modules/

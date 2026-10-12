@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict
+from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
@@ -99,4 +99,72 @@ def summarize(
         "strategy": strategy_metrics(strategy_ret, position, periods_per_year),
         "benchmark": strategy_metrics(bench_ret.fillna(0.0), pd.Series(1.0, index=bench_ret.index),
                                       periods_per_year),
+    }
+
+
+def round_trip_metrics(trades, initial_cash: float = 0.0) -> Dict[str, Any]:
+    """把逐笔买/卖按 FIFO 配对成"完整回合"，给出短线真正该看的指标。
+
+    返回：回合数、胜率、每笔平均收益、盈亏比(profit_factor)、期望值、平均持有天数、
+    总费用、费用占本金比例。短线判断"每笔期望 > 成本"就看这里。
+    """
+    from collections import defaultdict, deque
+
+    lots: Dict[str, deque] = defaultdict(deque)
+    closed: List[Dict[str, Any]] = []
+    total_fees = 0.0
+
+    for t in trades:
+        total_fees += float(getattr(t, "total_fee", 0.0) or 0.0)
+        sym = t.symbol
+        qty = int(t.qty)
+        if qty <= 0:
+            continue
+        if t.side == "buy":
+            lots[sym].append({"qty": qty, "price": float(t.price), "date": t.date})
+        else:
+            remain = qty
+            while remain > 0 and lots[sym]:
+                lot = lots[sym][0]
+                m = min(lot["qty"], remain)
+                try:
+                    hold_days = int((pd.Timestamp(t.date) - pd.Timestamp(lot["date"])).days)
+                except Exception:  # noqa: BLE001
+                    hold_days = 0
+                ret = float(t.price) / lot["price"] - 1.0 if lot["price"] else 0.0
+                closed.append({
+                    "symbol": sym, "entry": str(lot["date"])[:10], "exit": str(t.date)[:10],
+                    "qty": m, "ret": ret, "pnl": (float(t.price) - lot["price"]) * m,
+                    "hold_days": hold_days,
+                })
+                lot["qty"] -= m
+                remain -= m
+                if lot["qty"] <= 0:
+                    lots[sym].popleft()
+
+    n = len(closed)
+    if n == 0:
+        return {"round_trips": 0, "total_fees": round(total_fees, 2),
+                "fee_pct_of_cash": round(total_fees / initial_cash * 100, 3) if initial_cash else None}
+
+    rets = np.array([c["ret"] for c in closed])
+    wins = rets[rets > 0]
+    losses = rets[rets <= 0]
+    gross_win = float(wins.sum())
+    gross_loss = float(-losses.sum())
+    return {
+        "round_trips": n,
+        "win_rate": float(len(wins) / n),
+        "avg_return": float(rets.mean()),
+        "median_return": float(np.median(rets)),
+        "avg_win": float(wins.mean()) if len(wins) else 0.0,
+        "avg_loss": float(losses.mean()) if len(losses) else 0.0,
+        "profit_factor": float(gross_win / gross_loss) if gross_loss > 1e-12 else None,
+        "expectancy": float(rets.mean()),
+        "best": float(rets.max()),
+        "worst": float(rets.min()),
+        "avg_hold_days": float(np.mean([c["hold_days"] for c in closed])),
+        "total_pnl": float(sum(c["pnl"] for c in closed)),
+        "total_fees": round(total_fees, 2),
+        "fee_pct_of_cash": round(total_fees / initial_cash * 100, 3) if initial_cash else None,
     }

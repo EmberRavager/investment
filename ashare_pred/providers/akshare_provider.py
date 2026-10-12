@@ -19,6 +19,8 @@ def _prefix(symbol: str, kind: str) -> str:
         return "hk" + symbol.zfill(5)
     if kind == "index":
         return ("sh" if symbol.startswith(("000", "999")) else "sz") + symbol
+    if kind == "fund":
+        return ("sh" if symbol.startswith("5") else "sz") + symbol
     if symbol.startswith(("6", "9")):
         return "sh" + symbol
     if symbol.startswith(("4", "8")):
@@ -51,6 +53,8 @@ class AkshareProvider(DataProvider):
         with no_proxy_env():
             if kind == "hk":
                 df = self._fetch_hk(ak, symbol, start, end, adj, errors)
+            elif kind == "fund":
+                df = self._fetch_fund(ak, symbol, s, e, adj, errors)
             else:
                 df = self._fetch_a(ak, symbol, kind, s, e, adj, errors)
 
@@ -98,6 +102,26 @@ class AkshareProvider(DataProvider):
         except Exception as exc:  # noqa: BLE001
             errors.append(("tencent", f"{type(exc).__name__}: {str(exc)[:80]}"))
 
+        return None
+
+    def _fetch_fund(self, ak, symbol, s, e, adj, errors):
+        """ETF/LOF 历史行情：eastmoney 优先（含复权），失败退回 sina（稳定，无复权）。"""
+        try:
+            df = ak.fund_etf_hist_em(symbol=symbol, period="daily",
+                                     start_date=s, end_date=e, adjust=adj)
+            if df is not None and len(df) > 0:
+                return df
+            errors.append(("eastmoney-fund", "空数据"))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(("eastmoney-fund", f"{type(exc).__name__}: {str(exc)[:80]}"))
+        try:
+            df = ak.fund_etf_hist_sina(symbol=_prefix(symbol, "fund"))
+            df = _slice(df, pd.to_datetime(s), pd.to_datetime(e))
+            if len(df) > 0:
+                return df
+            errors.append(("sina-fund", "空数据"))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(("sina-fund", f"{type(exc).__name__}: {str(exc)[:80]}"))
         return None
 
     def _fetch_hk(self, ak, symbol, start, end, adj, errors):
