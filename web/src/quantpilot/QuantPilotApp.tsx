@@ -17,6 +17,7 @@ import StrategyLab from "./StrategyLab";
 import Backtest from "./Backtest";
 import PaperTrading from "./PaperTrading";
 import Guide from "./Guide";
+import Onboarding from "./Onboarding";
 import ResearchBanner from "./ResearchBanner";
 import "./quantpilot.css";
 
@@ -63,6 +64,8 @@ export default function QuantPilotApp() {
   const [form, setForm] = useState<StrategyForm>(DEFAULT_FORM);
   const [cash, setCash] = useState(DEFAULT_CASH);
   const [selected, setSelected] = useState<{ symbol: string; name: string } | null>(null);
+  const [showIntro, setShowIntro] = useState(() => !localStorage.getItem("qp_intro_done"));
+  const closeIntro = () => { localStorage.setItem("qp_intro_done", "1"); setShowIntro(false); };
 
   const page = route.page;
   const spec = useMemo(() => formToSpec(form), [form]);
@@ -114,6 +117,7 @@ export default function QuantPilotApp() {
 
   return (
     <div className="qp">
+      {showIntro && <Onboarding onClose={closeIntro} onGo={(k) => { closeIntro(); go(k); }} />}
       <aside className="qp-side">
         <div className="qp-logo">
           <div className="mark"><CandlestickChart size={18} /></div>
@@ -149,6 +153,7 @@ export default function QuantPilotApp() {
             <p>{current.hint}</p>
           </div>
           <div className="right">
+            <button className="link" onClick={() => go("guide")}>使用说明</button>
             <span className="item">当前策略：{spec.name}</span>
             <span className="item">本金 ¥{cash.toLocaleString()}</span>
           </div>

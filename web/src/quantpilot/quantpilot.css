@@ -209,6 +209,20 @@
 .qp-research-banner b { color: #b26a00; }
 .qp-research-banner svg { flex: none; margin-top: 1px; color: #d97706; }
 
+/* ---------- 首次引导弹窗 ---------- */
+.qp-onboard {
+  position: fixed; z-index: 70; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: min(640px, 92vw); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; padding: 22px 24px; box-shadow: 0 24px 60px rgba(16, 24, 40, 0.22);
+}
+.onb-step { display: flex; gap: 12px; margin-bottom: 14px; }
+.onb-step .n {
+  width: 26px; height: 26px; border-radius: 50%; background: var(--primary); color: #fff;
+  font-size: 13px; font-weight: 700; display: grid; place-items: center; flex: none; margin-top: 1px;
+}
+.onb-step b { display: inline-flex; align-items: center; gap: 6px; font-size: 14.5px; }
+.onb-step p { margin: 4px 0 0; font-size: 13px; color: var(--text-2); line-height: 1.7; }
+
 /* ---------- 个股详情抽屉 ---------- */
 .qp-drawer-mask {
   position: fixed; inset: 0; background: rgba(15, 23, 42, 0.36); z-index: 60;

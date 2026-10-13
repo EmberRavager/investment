@@ -139,7 +139,16 @@ export default function Overview({ strat, onGo }: { strat: Strat; onGo: (k: stri
               })}
             </tbody>
           </table>
-          {holdings.length === 0 && <div className="empty">还没有持仓。上面搜索股票、填股数和买入价即可添加。</div>}
+          {holdings.length === 0 && (
+            <div className="empty">
+              还没有持仓。上面搜索股票、填股数和买入价即可添加。
+              <div style={{ marginTop: 12, display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                <button className="btn primary sm" onClick={() => onGo("radar")}>去股票雷达选股</button>
+                <button className="btn ghost sm" onClick={() => onGo("lab")}>去策略实验室</button>
+                <button className="btn ghost sm" onClick={() => onGo("guide")}>看使用说明</button>
+              </div>
+            </div>
+          )}
         </div>
         <div className="notice" style={{ marginTop: 10 }}>
           现价来自浏览器实时行情（stock-sdk）；取不到时按成本价计。持仓保存在本机浏览器。
