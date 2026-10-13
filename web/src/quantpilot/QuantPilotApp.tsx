@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   LayoutDashboard, Radar as RadarIcon, FlaskConical, LineChart, Wallet, CandlestickChart, BarChart3, Compass, Boxes, BookOpen,
 } from "lucide-react";
 import { api } from "../api";
 import type { Health } from "../types";
-import { NAV } from "./data";
+import { NAV, NEXT, labelOf } from "./data";
 import { DEFAULT_CASH } from "./spec";
 import { DEFAULT_FORM, formToSpec, type StrategyForm } from "./strategyForm";
 import { useStrategyRun } from "./useStrategy";
@@ -115,6 +115,16 @@ export default function QuantPilotApp() {
 
   const current = NAV.find((n) => n.key === page)!;
 
+  const groups = useMemo(() => {
+    const order: string[] = [];
+    const map: Record<string, typeof NAV> = {};
+    for (const n of NAV) {
+      if (!map[n.group]) { map[n.group] = []; order.push(n.group); }
+      map[n.group].push(n);
+    }
+    return order.map((g) => ({ group: g, items: map[g] }));
+  }, []);
+
   return (
     <div className="qp">
       {showIntro && <Onboarding onClose={closeIntro} onGo={(k) => { closeIntro(); go(k); }} />}
@@ -127,17 +137,21 @@ export default function QuantPilotApp() {
           </div>
         </div>
 
-        <div className="qp-nav-label">工作台</div>
         <nav className="qp-nav">
-          {NAV.map((n) => {
-            const Icon = ICONS[n.key];
-            return (
-              <button key={n.key} className={page === n.key ? "on" : ""} onClick={() => go(n.key)}>
-                <Icon size={16} className="ico" />
-                <span className="lbl">{n.label}</span>
-              </button>
-            );
-          })}
+          {groups.map((g) => (
+            <Fragment key={g.group}>
+              <div className="qp-nav-label">{g.group}</div>
+              {g.items.map((n) => {
+                const Icon = ICONS[n.key];
+                return (
+                  <button key={n.key} className={page === n.key ? "on" : ""} onClick={() => go(n.key)} title={n.hint}>
+                    <Icon size={16} className="ico" />
+                    <span className="lbl">{n.label}</span>
+                  </button>
+                );
+              })}
+            </Fragment>
+          ))}
         </nav>
 
         <div className="qp-side-foot">
@@ -161,6 +175,13 @@ export default function QuantPilotApp() {
 
         <div className="qp-body">
           <ResearchBanner />
+          {page !== "guide" && NEXT[page] && (
+            <div className="qp-nextstep">
+              <span>主线下一步：</span>
+              <button className="btn primary sm" onClick={() => go(NEXT[page])}>{labelOf(NEXT[page])} →</button>
+              <button className="link" style={{ marginLeft: "auto" }} onClick={() => go("guide")}>不知道怎么用？看使用说明</button>
+            </div>
+          )}
           {page === "overview" && <Overview strat={strat} onGo={go} />}
           {page === "radar" && (
             <Radar

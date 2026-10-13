@@ -223,6 +223,13 @@
 .onb-step b { display: inline-flex; align-items: center; gap: 6px; font-size: 14.5px; }
 .onb-step p { margin: 4px 0 0; font-size: 13px; color: var(--text-2); line-height: 1.7; }
 
+/* ---------- 主线"下一步"提示条 ---------- */
+.qp-nextstep {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 11px;
+  padding: 9px 14px; margin-bottom: 14px; font-size: 13px; color: var(--text-2);
+}
+
 /* ---------- 个股详情抽屉 ---------- */
 .qp-drawer-mask {
   position: fixed; inset: 0; background: rgba(15, 23, 42, 0.36); z-index: 60;
