@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import { api } from "../api";
 import type { Health } from "../types";
-import { NAV, NEXT, labelOf } from "./data";
+import { NAV, NEXT, SIMPLE_KEYS, labelOf } from "./data";
 import { DEFAULT_CASH } from "./spec";
 import { DEFAULT_FORM, formToSpec, type StrategyForm } from "./strategyForm";
 import { useStrategyRun } from "./useStrategy";
@@ -66,6 +66,8 @@ export default function QuantPilotApp() {
   const [selected, setSelected] = useState<{ symbol: string; name: string } | null>(null);
   const [showIntro, setShowIntro] = useState(() => !localStorage.getItem("qp_intro_done"));
   const closeIntro = () => { localStorage.setItem("qp_intro_done", "1"); setShowIntro(false); };
+  const [showAll, setShowAll] = useState(() => localStorage.getItem("qp_all") === "1");
+  const toggleAll = () => { const v = !showAll; setShowAll(v); localStorage.setItem("qp_all", v ? "1" : "0"); };
 
   const page = route.page;
   const spec = useMemo(() => formToSpec(form), [form]);
@@ -116,14 +118,15 @@ export default function QuantPilotApp() {
   const current = NAV.find((n) => n.key === page)!;
 
   const groups = useMemo(() => {
+    const nav = showAll ? NAV : NAV.filter((n) => SIMPLE_KEYS.includes(n.key));
     const order: string[] = [];
     const map: Record<string, typeof NAV> = {};
-    for (const n of NAV) {
+    for (const n of nav) {
       if (!map[n.group]) { map[n.group] = []; order.push(n.group); }
       map[n.group].push(n);
     }
     return order.map((g) => ({ group: g, items: map[g] }));
-  }, []);
+  }, [showAll]);
 
   return (
     <div className="qp">
@@ -153,6 +156,10 @@ export default function QuantPilotApp() {
             </Fragment>
           ))}
         </nav>
+
+        <button className="qp-nav-toggle" onClick={toggleAll}>
+          {showAll ? "收起 · 只看主线" : "显示全部功能（进阶）"}
+        </button>
 
         <div className="qp-side-foot">
           <div className="st"><span className={`dot ${health ? "ok" : "bad"}`} />引擎<span className="v">{health ? "正常" : "未连接"}</span></div>

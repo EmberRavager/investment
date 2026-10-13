@@ -38,6 +38,18 @@ export default function Guide() {
         </div>
       </div>
 
+      <div className="panel" style={{ marginBottom: 16, borderColor: "#ffe2ad", background: "#fffaf0" }}>
+        <div className="panel-head"><span className="t">哪种方法最准？（诚实结论）</span></div>
+        <div className="notice" style={{ margin: 0, lineHeight: 2, color: "var(--text-2)" }}>
+          • <b>没有"最准"</b>：日频方向预测约等于随机。<br />
+          • ML 预测涨跌：实测 AUC≈0.47 → 不可用。<br />
+          • 单票规则/趋势：胜率≈50%，无选股能力（正收益主要来自市场 beta）。<br />
+          • 多因子（Alpha158+模型）：IC 0.008–0.022 → 太弱，系统自动判"无效"。<br />
+          • <b>相对最靠谱</b>：横截面多因子/动量（一篮子，别赌单票）；<b>但对个人最稳的基准是"直接买宽基指数"</b>——任何策略必须扣费后稳定跑赢它才值得用。<br />
+          • <b>结论</b>：本系统目前是研究/验证平台，尚无可证实能赚钱的策略，请勿实盘。
+        </div>
+      </div>
+
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><span className="t">快速上手（3 步）</span></div>
         <Step n={1} title="在「策略实验室」准备一套策略">

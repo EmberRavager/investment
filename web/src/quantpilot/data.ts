@@ -37,3 +37,6 @@ export const NEXT: Record<string, string> = {
 export function labelOf(key: string): string {
   return NAV.find((n) => n.key === key)?.label ?? key;
 }
+
+//: 简单模式只保留这些（主线），其余折叠到"更多功能"
+export const SIMPLE_KEYS = ["guide", "lab", "radar", "backtest", "overview"];
