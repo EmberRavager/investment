@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  LayoutDashboard, Radar as RadarIcon, FlaskConical, LineChart, Wallet, CandlestickChart, BarChart3, Compass, Boxes,
+  LayoutDashboard, Radar as RadarIcon, FlaskConical, LineChart, Wallet, CandlestickChart, BarChart3, Compass, Boxes, BookOpen,
 } from "lucide-react";
 import { api } from "../api";
 import type { Health } from "../types";
@@ -16,6 +16,7 @@ import Xsec from "./Xsec";
 import StrategyLab from "./StrategyLab";
 import Backtest from "./Backtest";
 import PaperTrading from "./PaperTrading";
+import Guide from "./Guide";
 import ResearchBanner from "./ResearchBanner";
 import "./quantpilot.css";
 
@@ -28,6 +29,7 @@ const ICONS: Record<string, any> = {
   lab: FlaskConical,
   backtest: LineChart,
   paper: Wallet,
+  guide: BookOpen,
 };
 
 const PAGE_KEYS = NAV.map((n) => n.key);
@@ -167,6 +169,7 @@ export default function QuantPilotApp() {
           {page === "lab" && <StrategyLab strat={strat} />}
           {page === "backtest" && <Backtest strat={strat} />}
           {page === "paper" && <PaperTrading strat={strat} />}
+          {page === "guide" && <Guide />}
 
           <div className="notice" style={{ marginTop: 22 }}>
             全站共用同一套「策略 + 风控」；总览/回测/模拟交易基于真实历史行情与确定性规则引擎

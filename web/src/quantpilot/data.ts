@@ -14,4 +14,5 @@ export const NAV: NavKey[] = [
   { key: "lab", label: "策略实验室", hint: "描述 / 调整策略并回测" },
   { key: "backtest", label: "回测中心", hint: "历史验证与交易明细" },
   { key: "paper", label: "模拟交易", hint: "持仓、订单与资金" },
+  { key: "guide", label: "使用说明", hint: "怎么用这个平台" },
 ];
