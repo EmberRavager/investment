@@ -111,6 +111,11 @@ export const api = {
   strategyRun: (spec: any, opts: { initial_cash?: number; start?: string; persist?: boolean } = {}) =>
     postJSON<any>(`${BASE}/api/strategy/run`, { spec, persist: false, ...opts }),
   strategies: () => getJSON<{ strategies: any[] }>(`${BASE}/api/strategies`),
+  paperRecord: (opts: { as_of: string; picks: any[]; horizon?: number; index_symbol?: string; initial_cash?: number }) =>
+    postJSON<{ paper_id: number }>(`${BASE}/api/paper/record`, opts),
+  paperList: () => getJSON<{ papers: any[] }>(`${BASE}/api/paper`),
+  paperResolve: () => postJSON<{ resolved: number }>(`${BASE}/api/paper/resolve`, {}),
+  liveReadiness: () => getJSON<{ ready: boolean; blockers: string[]; note: string }>(`${BASE}/api/live/readiness`),
   strategySignals: (spec: any, symbols: string[]) =>
     postJSON<{ signals: any[]; warnings: string[] }>(`${BASE}/api/strategy/signals`, { spec, symbols }),
   strategyDetail: (id: number) => getJSON<{ strategy: any; runs: any[] }>(`${BASE}/api/strategies/${id}`),

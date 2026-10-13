@@ -1,14 +1,45 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { Loader2 } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import { api } from "../api";
 import type { Strat } from "./QuantPilotApp";
 import StrategySelector from "./StrategySelector";
 import { verdictOf } from "./verdict";
 
 export default function Backtest({ strat }: { strat: Strat }) {
   const { result, loading, error } = strat;
+  const [mode, setMode] = useState<"single" | "panel">("single");
+  const [question, setQuestion] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [reflect, setReflect] = useState<string | null>(null);
+  const [panel, setPanel] = useState<Record<string, string> | null>(null);
+  const [rErr, setRErr] = useState<string | null>(null);
+
+  const doReflect = async () => {
+    if (!result) return;
+    setBusy(true); setRErr(null); setReflect(null); setPanel(null);
+    const summary = {
+      symbol: result.spec?.name || "组合",
+      kind: "组合/横截面",
+      model: result.params?.model || result.spec?.name || "-",
+      n_features: result.factor_cols?.length,
+      last_date: result.as_of,
+      signal: "",
+      metrics: { classification: {}, strategy: result.metrics || {}, benchmark: result.index_metrics || result.metrics?.benchmark || {} },
+      feature_importance: Object.fromEntries((result.factor_importance || []).map((f: any) => [f.factor, f.importance])),
+      config: { labels: {}, backtest: result.params || {}, model: { params: {} } },
+    };
+    try {
+      const r = await api.reflect(summary, question || undefined, mode);
+      if (mode === "panel") setPanel(r.panel || null);
+      else setReflect(r.reflection || "");
+    } catch (e: any) {
+      setRErr(e.message);
+    } finally { setBusy(false); }
+  };
 
   const curve = useMemo(() => {
     const s = result?.series;
@@ -149,6 +180,37 @@ export default function Backtest({ strat }: { strat: Strat }) {
             <p>仅在收盘确认信号、次日开盘成交，不使用未来信息。历史回测不代表未来，不构成投资建议。</p>
           </div>
         </div>
+      </div>
+
+      <div className="panel" style={{ marginTop: 16 }}>
+        <div className="panel-head">
+          <span className="t">AI 反思</span>
+          <div className="mode-switch">
+            <button className={mode === "single" ? "active" : ""} onClick={() => setMode("single")}>单次评审</button>
+            <button className={mode === "panel" ? "active" : ""} onClick={() => setMode("panel")}>多 Agent 辩论</button>
+          </div>
+        </div>
+        <div className="q-input">
+          <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="可选：想追问的问题，如“收益是否集中在少数交易？”" />
+          <button className="btn primary" onClick={doReflect} disabled={busy}>
+            {busy ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} 生成反思
+          </button>
+        </div>
+        {rErr && (
+          <div className="ai-box" style={{ marginTop: 12, borderColor: "#ffe2ad", background: "#fffaf0" }}>
+            <div className="who" style={{ color: "#b26a00" }}>未启用</div>
+            <p>{rErr}（需配置 <b>DEEPSEEK_API_KEY</b> 环境变量后可用）</p>
+          </div>
+        )}
+        {reflect && (
+          <div className="reflect-body"><ReactMarkdown>{reflect}</ReactMarkdown></div>
+        )}
+        {panel && Object.entries(panel).map(([who, text]) => (
+          <div className="agent-block" key={who}>
+            <div className="who">{who}</div>
+            <div className="reflect-body"><ReactMarkdown>{text}</ReactMarkdown></div>
+          </div>
+        ))}
       </div>
     </>
   );

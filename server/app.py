@@ -154,6 +154,8 @@ class XsecRequest(BaseModel):
     target: str = "rank"
     neutralize_size: bool = True
     neutralize_industry: bool = True
+    risk_aversion: float = 0.0        # 组合风险厌恶（对角风险模型）
+    impact: float = 0.0               # 冲击成本系数
     stop_loss: float = 0.0
     drawdown_stop: float = 0.20
     start: str = "2018-01-01"
@@ -186,6 +188,16 @@ class SaveStrategyRequest(BaseModel):
     name: Optional[str] = None
     description: str = ""
     source: str = "manual"
+
+
+class PaperRecordRequest(BaseModel):
+    as_of: str = ""
+    picks: List[Dict[str, Any]] = []
+    horizon: int = 5
+    index_symbol: str = "000300"
+    strategy_id: Optional[int] = None
+    params: Optional[Dict[str, Any]] = None
+    initial_cash: float = 0.0
 
 
 class UpdateStrategyRequest(BaseModel):
@@ -231,6 +243,44 @@ def _clean(obj: Any) -> Any:
     if isinstance(obj, (list, tuple)):
         return [_clean(v) for v in obj]
     return obj
+
+
+@app.get("/api/live/readiness")
+def live_readiness_endpoint():
+    from ashare_pred.engine import live_readiness
+    return live_readiness()
+
+
+@app.post("/api/paper/record")
+def paper_record(req: PaperRecordRequest):
+    try:
+        from ashare_pred.paper import record_snapshot
+        picks = req.picks or []
+        if not picks:
+            raise HTTPException(status_code=400, detail="picks 为空")
+        as_of = req.as_of or datetime.date.today().isoformat()
+        pid = record_snapshot(get_store(), as_of=as_of, picks=picks, horizon=req.horizon,
+                              index_symbol=req.index_symbol, strategy_id=req.strategy_id,
+                              params=req.params, initial_cash=req.initial_cash)
+        return {"paper_id": pid}
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
+
+
+@app.post("/api/paper/resolve")
+def paper_resolve():
+    try:
+        from ashare_pred.paper import resolve_pending
+        return {"resolved": resolve_pending(get_store())}
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
+
+
+@app.get("/api/paper")
+def paper_list():
+    return {"papers": get_store().list_papers()}
 
 
 @app.get("/api/health")
@@ -639,14 +689,26 @@ def strategy_rotation(req: RotationRequest):
         raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}")
 
 
+def _xsec_membership(req: "XsecRequest"):
+    if req.universe != "index":
+        return None
+    try:
+        from ashare_pred.xsec_data import membership_months
+        return membership_months(req.index, req.start, req.end or datetime.date.today().isoformat())
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _xsec_symbols(req: "XsecRequest") -> List[str]:
     """确定多因子选股的股票池。"""
     if req.symbols:
         return req.symbols
     if req.universe == "index":
         try:
-            from ashare_pred.xsec_data import build_index_universe
-            syms = build_index_universe(req.index, include_delisted=req.include_delisted)
+            from ashare_pred.xsec_data import build_pit_universe
+            syms = build_pit_universe(req.index, req.start,
+                                      req.end or datetime.date.today().isoformat(),
+                                      include_delisted=req.include_delisted)
             if syms:
                 return syms
         except Exception:  # noqa: BLE001
@@ -768,6 +830,8 @@ def xsec_run(req: XsecRequest):
                        train_window=req.train_window, retrain=req.retrain, model_name=req.model,
                        target=req.target, neutralize_size=req.neutralize_size,
                        neutralize_industry=req.neutralize_industry,
+                       membership=_xsec_membership(req),
+                       risk_aversion=req.risk_aversion, impact=req.impact,
                        initial_cash=req.initial_cash, names=names,
                        drawdown_stop=req.drawdown_stop)
         return _xsec_payload(out, prices, req.initial_cash, warnings, req, names)
@@ -800,6 +864,8 @@ def xsec_stream(req: XsecRequest):
                        train_window=req.train_window, retrain=req.retrain, model_name=req.model,
                        target=req.target, neutralize_size=req.neutralize_size,
                        neutralize_industry=req.neutralize_industry,
+                       membership=_xsec_membership(req),
+                       risk_aversion=req.risk_aversion, impact=req.impact,
                        initial_cash=req.initial_cash, names=names,
                        drawdown_stop=req.drawdown_stop, progress=p2)
         return _xsec_payload(out, prices, req.initial_cash, warnings, req, names)

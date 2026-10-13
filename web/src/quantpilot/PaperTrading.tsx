@@ -1,9 +1,23 @@
+import { useEffect, useState } from "react";
 import { ShieldAlert, Loader2, RefreshCw } from "lucide-react";
+import { api } from "../api";
 import type { Strat } from "./QuantPilotApp";
 import StrategySelector from "./StrategySelector";
 
 export default function PaperTrading({ strat }: { strat: Strat }) {
   const { result, loading, error, run } = strat;
+  const [papers, setPapers] = useState<any[]>([]);
+  const [resolving, setResolving] = useState(false);
+  const [liveReady, setLiveReady] = useState<any>(null);
+  const loadPapers = () => api.paperList().then((r) => setPapers(r.papers)).catch(() => {});
+  useEffect(() => {
+    loadPapers();
+    api.liveReadiness().then(setLiveReady).catch(() => {});
+  }, []);
+  const resolvePaper = async () => {
+    setResolving(true);
+    try { await api.paperResolve(); await loadPapers(); } catch { /* ignore */ } finally { setResolving(false); }
+  };
 
   if (loading && !result) return <div className="panel"><div style={{ display: "flex", gap: 8, color: "var(--text-3)" }}><Loader2 size={16} className="spin" /> 生成模拟盘…</div></div>;
   if (error) return <div className="error">模拟盘失败：{error}</div>;
@@ -125,6 +139,54 @@ export default function PaperTrading({ strat }: { strat: Strat }) {
               这是用真实历史行情跑出的模拟账户期末状态，不是实时委托；实盘接入后同一引擎负责撮合。
             </div>
           </div>
+
+          <div className="panel">
+            <div className="panel-head">
+              <span className="t">实盘接入</span>
+              <span className={`pill ${liveReady?.ready ? "green" : "red"}`}>{liveReady?.ready ? "已就绪" : "未就绪"}</span>
+            </div>
+            <div className="rule-list">
+              {(liveReady?.blockers || []).map((b: string, i: number) => (
+                <div className="rule-item" key={i}><ShieldAlert size={14} style={{ color: "var(--text-3)" }} /><span>{b}</span></div>
+              ))}
+            </div>
+            <div className="notice" style={{ marginTop: 12 }}>{liveReady?.note || "实盘尚未接入。"}</div>
+          </div>
+        </div>
+      </div>
+      <div className="panel" style={{ marginTop: 16 }}>
+        <div className="panel-head">
+          <span className="t">模拟盘跟踪（长期验证）</span>
+          <span className="s">{papers.length} 条记录 · 用真实行情事后结算</span>
+          <button className="link" onClick={resolvePaper} disabled={resolving}>
+            {resolving ? <Loader2 size={13} className="spin" style={{ verticalAlign: -2, marginRight: 4 }} /> : null}结算待定记录
+          </button>
+        </div>
+        <table className="qp-table">
+          <thead><tr><th>记录日</th><th>持有期</th><th style={{ textAlign: "left" }}>标的</th><th>组合收益</th><th>指数</th><th>超额</th><th>命中率</th></tr></thead>
+          <tbody>
+            {papers.map((p) => (
+              <tr key={p.id}>
+                <td className="mono">{p.as_of}</td>
+                <td className="mono">{p.horizon}日</td>
+                <td style={{ textAlign: "left", whiteSpace: "normal", maxWidth: 320 }}>
+                  {(p.picks || []).map((x: any) => x.name || x.symbol).join("、") || "—"}
+                </td>
+                <td className={`mono ${(p.result?.pick_return ?? 0) >= 0 ? "up" : "down"}`}>
+                  {p.result ? `${(p.result.pick_return * 100).toFixed(1)}%` : "待结算"}
+                </td>
+                <td className="mono">{p.result?.index_return != null ? `${(p.result.index_return * 100).toFixed(1)}%` : "—"}</td>
+                <td className={`mono ${(p.result?.excess ?? 0) >= 0 ? "up" : "down"}`}>
+                  {p.result?.excess != null ? `${(p.result.excess * 100).toFixed(1)}%` : "—"}
+                </td>
+                <td className="mono">{p.result?.hit_rate != null ? `${(p.result.hit_rate * 100).toFixed(0)}%` : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {papers.length === 0 && <div className="empty">还没有模拟盘记录。在「多因子选股」页点「记录到模拟盘」即可。</div>}
+        <div className="notice" style={{ marginTop: 10 }}>
+          记录选股快照 → 持有期结束后「结算」用真实行情算收益/超额/命中率，累积成判断"能不能用"的样本外证据。
         </div>
       </div>
     </>

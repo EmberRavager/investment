@@ -14,6 +14,13 @@ class TradingCost:
     min_commission: float = 5.0     # 单笔最低佣金
     transfer_fee: float = 0.00001   # 过户费（沪市，双边；这里统一按费率近似）
     apply_transfer_fee: bool = False
+    impact_coef: float = 0.0        # 冲击成本系数：impact = coef * sqrt(成交额/日均成交额) * 成交额
+
+    def impact(self, amount: float, adv: float) -> float:
+        """线性-平方根冲击成本模型（adv=日均成交额）。"""
+        if self.impact_coef <= 0 or adv <= 0 or amount <= 0:
+            return 0.0
+        return self.impact_coef * (amount / adv) ** 0.5 * amount
 
     def breakdown(self, side: str, amount: float) -> Tuple[float, float, float]:
         """返回 (佣金, 印花税, 过户费)。amount 为成交额。"""

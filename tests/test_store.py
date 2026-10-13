@@ -37,6 +37,19 @@ def test_strategy_versioning_and_persistence():
     assert detail["positions"]                # 有持仓记录
 
 
+def test_paper_record_and_resolve():
+    s = Store(":memory:")
+    pid = s.create_paper(as_of="2024-01-02", horizon=5, index_symbol="000300",
+                         picks=[{"symbol": "600519", "name": "贵州茅台"}])
+    papers = s.list_papers()
+    assert papers and papers[0]["id"] == pid
+    assert papers[0]["picks"][0]["symbol"] == "600519"
+    assert papers[0]["result"] is None
+    s.resolve_paper(pid, {"pick_return": 0.03, "excess": 0.01})
+    assert s.list_papers()[0]["result"]["pick_return"] == 0.03
+    assert s.list_papers(only_pending=True) == []
+
+
 def test_cannot_validate_without_backtest():
     s = Store(":memory:")
     sid = s.create_strategy("未验证策略", {"type": "rule"})

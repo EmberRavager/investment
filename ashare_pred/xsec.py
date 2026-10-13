@@ -159,12 +159,18 @@ def _winsor_zscore(panel: pd.DataFrame, factor_cols: List[str]) -> None:
         panel[col] = ((panel[col] - mean) / (std + eps)).clip(-5, 5)
 
 
-def neutralize(panel: pd.DataFrame, factor_cols: List[str], industry: Dict[str, str],
+def neutralize(panel: pd.DataFrame, factor_cols: List[str], industry,
                use_size: bool = True) -> pd.DataFrame:
-    """对每个因子做横截面回归取残差：f ~ 1 + ln(size) + 行业哑变量。"""
+    """对每个因子做横截面回归取残差：f ~ 1 + ln(size) + 行业哑变量。
+
+    industry 可以是 {symbol: 行业}（静态）或 (symbol, date)->行业 的可调用（时变）。
+    """
     out = panel.copy()
     out["lnsize"] = out["size"].astype(float)
-    out["ind"] = out["symbol"].map(industry).fillna("UNK")
+    if callable(industry):
+        out["ind"] = [industry(str(s), str(d)[:10]) for s, d in zip(out["symbol"], out["date"])]
+    else:
+        out["ind"] = out["symbol"].map(industry).fillna("UNK")
     for d, idx in out.groupby("date").groups.items():
         sub = out.loc[idx]
         F = sub[factor_cols].to_numpy(float)
@@ -190,6 +196,32 @@ def neutralize(panel: pd.DataFrame, factor_cols: List[str], industry: Dict[str, 
 
 
 # ==================== 模型 ====================
+class _EnsembleModel:
+    """集成：LightGBM + Lasso + MLP 的预测均值（特征重要性取 LGB）。"""
+
+    def __init__(self, members):
+        self.members = members
+
+    def fit(self, X, y):
+        for m in self.members:
+            try:
+                m.fit(X, y)
+            except Exception:  # noqa: BLE001
+                pass
+        return self
+
+    def predict(self, X):
+        preds = [m.predict(X) for m in self.members if hasattr(m, "predict")]
+        return np.mean(preds, axis=0) if preds else np.zeros(len(X))
+
+    @property
+    def feature_importances_(self):
+        for m in self.members:
+            if hasattr(m, "feature_importances_"):
+                return m.feature_importances_
+        return None
+
+
 def _make_model(name: str = "lightgbm"):
     if name == "lightgbm":
         try:
@@ -201,6 +233,21 @@ def _make_model(name: str = "lightgbm"):
             )
         except Exception:  # noqa: BLE001
             pass
+    if name == "lasso":
+        from sklearn.linear_model import Lasso
+        return Lasso(alpha=1e-3, max_iter=5000)
+    if name == "mlp":
+        from sklearn.neural_network import MLPRegressor
+        return MLPRegressor(hidden_layer_sizes=(64, 32), max_iter=300,
+                            early_stopping=True, random_state=0)
+    if name == "ensemble":
+        members = []
+        for m in ("lightgbm", "lasso", "mlp"):
+            try:
+                members.append(_make_model(m))
+            except Exception:  # noqa: BLE001
+                pass
+        return _EnsembleModel(members)
     if name == "xgboost":
         try:
             from xgboost import XGBRegressor
@@ -239,11 +286,11 @@ def walk_forward_scores(
         if len(tr) >= min_train:
             model = _make_model(model_name)
             try:
-                model.fit(tr[factor_cols].to_numpy(), tr[y_col].to_numpy())
+                model.fit(tr[factor_cols].fillna(0.0).to_numpy(), tr[y_col].to_numpy())
                 te = panel[panel["date"].isin(test_dates)].dropna(subset=factor_cols)
                 if len(te):
                     te = te.copy()
-                    te["score"] = model.predict(te[factor_cols].to_numpy())
+                    te["score"] = model.predict(te[factor_cols].fillna(0.0).to_numpy())
                     rows.append(te[["date", "symbol", "score", "label"]])
                     last_model = model
             except Exception:  # noqa: BLE001
@@ -400,6 +447,7 @@ def explain_narrative(
 def optimize_weights(
     scores: Dict[str, float], prev_w: Dict[str, float], industry: Dict[str, str],
     cap: float, turnover_penalty: float, ind_limit: float, top_k: int,
+    vol: Optional[Dict[str, float]] = None, risk_aversion: float = 0.0,
 ) -> Dict[str, float]:
     syms = list(scores)
     if not syms:
@@ -410,9 +458,11 @@ def optimize_weights(
     if sd > 1e-12:
         s = (s - s.mean()) / sd
     w0 = np.array([prev_w.get(x, 0.0) for x in syms], dtype=float)
+    volv = np.array([(vol or {}).get(x, 0.3) for x in syms], dtype=float)
 
     def obj(w):
-        return -(s @ w) + turnover_penalty * np.sum((w - w0) ** 2)
+        risk = risk_aversion * np.sum((w * volv) ** 2)
+        return -(s @ w) + turnover_penalty * np.sum((w - w0) ** 2) + risk
 
     cons = [{"type": "ineq", "fun": lambda w: 1.0 - w.sum()}]
     groups: Dict[str, List[int]] = {}
@@ -446,6 +496,7 @@ def scores_to_targets(
     scores: pd.DataFrame, industry: Dict[str, str], top_k: int = 30,
     top_pool: Optional[int] = None, cap: float = 0.1, turnover_penalty: float = 0.05,
     ind_limit: float = 0.2, rebalance: int = 5,
+    vol: Optional[Dict[str, float]] = None, risk_aversion: float = 0.0,
 ) -> Tuple[Dict[Any, Dict[str, float]], Dict[Any, dict]]:
     top_pool = top_pool or max(top_k * 3, 40)
     dates = sorted(scores["date"].unique())
@@ -461,7 +512,7 @@ def scores_to_targets(
         g = g.sort_values("score", ascending=False).head(top_pool)
         sc = {str(r["symbol"]): float(r["score"]) for _, r in g.iterrows()}
         w = optimize_weights(sc, prev, industry, cap=cap, turnover_penalty=turnover_penalty,
-                             ind_limit=ind_limit, top_k=top_k)
+                             ind_limit=ind_limit, top_k=top_k, vol=vol, risk_aversion=risk_aversion)
         if not w:
             continue
         targets[d] = w
@@ -495,6 +546,9 @@ def run_xsec(
     target: str = "rank",
     neutralize_size: bool = True,
     neutralize_industry: bool = True,
+    membership: Optional[set] = None,
+    risk_aversion: float = 0.0,
+    impact: float = 0.0,
     initial_cash: float = 100000.0,
     names: Optional[Dict[str, str]] = None,
     drawdown_stop: float = 0.20,
@@ -502,11 +556,17 @@ def run_xsec(
     strategy_version: Optional[int] = None,
     progress=None,
 ) -> Dict[str, Any]:
-    from .xsec_data import load_industry_map
+    from .xsec_data import industry_resolver
 
     panel, factor_cols = build_panel(prices, horizon=horizon)
     if panel.empty:
         raise ValueError("有效标的不足，无法构建多因子面板")
+    if membership:
+        ym = panel["date"].dt.strftime("%Y-%m")
+        mask = [f"{s}|{m}" in membership for s, m in zip(panel["symbol"], ym)]
+        panel = panel[mask]
+        if panel.empty:
+            raise ValueError("按指数成分过滤后无数据（PIT 成分不可用？）")
 
     def emit(stage, pct):
         if progress:
@@ -514,10 +574,12 @@ def run_xsec(
 
     emit("横截面标准化", 5)
     _winsor_zscore(panel, factor_cols)
-    industry = load_industry_map(verbose=False) if neutralize_industry else {}
-    if neutralize_size or industry:
+    from .xsec_data import load_industry_map
+    resolver = industry_resolver() if neutralize_industry else {}
+    port_industry = load_industry_map(verbose=False)
+    if neutralize_size or neutralize_industry:
         emit("中性化(规模/行业)", 10)
-        panel = neutralize(panel, factor_cols, industry, use_size=neutralize_size)
+        panel = neutralize(panel, factor_cols, resolver, use_size=neutralize_size)
     emit("滚动训练与打分", 15)
     scores, last_model = walk_forward_scores(
         panel, factor_cols, target=target, horizon=horizon,
@@ -530,14 +592,18 @@ def run_xsec(
 
     emit("组合优化", 88)
     cap = min(1.0, max(0.05, 3.0 / max(1, top_k)))
+    vol = {s: float(prices[s]["close"].pct_change().std() * (252 ** 0.5)) for s in prices}
     targets, evidence = scores_to_targets(
-        scores, industry, top_k=top_k, cap=cap, rebalance=rebalance,
+        scores, port_industry, top_k=top_k, cap=cap, rebalance=rebalance,
+        vol=vol, risk_aversion=risk_aversion,
     )
 
     emit("撮合回测", 92)
-    res_cost = _run_broker(prices, targets, evidence, names, top_k, initial_cash, drawdown_stop, cost or TradingCost(), strategy_version)
+    base_cost = cost or TradingCost()
+    base_cost.impact_coef = impact
+    res_cost = _run_broker(prices, targets, evidence, names, top_k, initial_cash, drawdown_stop, base_cost, strategy_version)
     res_free = _run_broker(prices, targets, evidence, names, top_k, initial_cash, drawdown_stop,
-                           TradingCost(commission=0, stamp_tax=0, slippage=0, min_commission=0), strategy_version)
+                           TradingCost(commission=0, stamp_tax=0, slippage=0, min_commission=0, impact_coef=0.0), strategy_version)
 
     factor_importance = []
     if last_model is not None and hasattr(last_model, "feature_importances_"):

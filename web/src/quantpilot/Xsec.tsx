@@ -15,10 +15,24 @@ export default function Xsec({ strat }: { strat: Strat }) {
   const [universe, setUniverse] = useState<"index" | "market" | "etf" | "default" | "custom">("index");
   const [indexCode, setIndexCode] = useState("000905");
   const [uniSize, setUniSize] = useState(80);
+  const [model, setModel] = useState("lightgbm");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{ stage: string; pct: number } | null>(null);
   const [data, setData] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [paperMsg, setPaperMsg] = useState<string | null>(null);
+
+  const recordPaper = async () => {
+    if (!data?.picks?.length) return;
+    try {
+      const r = await api.paperRecord({
+        as_of: data.picks_as_of || "", horizon,
+        picks: data.picks.map((p: any) => ({ symbol: p.symbol, name: p.name })),
+        index_symbol: "000300", initial_cash: strat.cash,
+      });
+      setPaperMsg(`已记录为模拟盘 #${r.paper_id}（去「模拟交易」页结算查看）`);
+    } catch (e: any) { setPaperMsg("记录失败：" + e.message); }
+  };
 
   const run = async () => {
     setLoading(true); setError(null); setData(null);
@@ -26,7 +40,7 @@ export default function Xsec({ strat }: { strat: Strat }) {
     let result: any = null; let err: string | null = null;
     const opts: any = {
       top_k: topK, horizon, rebalance, train_window: trainWindow, retrain,
-      initial_cash: strat.cash, model: "lightgbm",
+      initial_cash: strat.cash, model,
       universe: universe === "custom" ? "default" : universe,
       index: indexCode,
       universe_size: uniSize,
@@ -104,6 +118,15 @@ export default function Xsec({ strat }: { strat: Strat }) {
             <label>股票池数量</label>
             <input type="number" value={uniSize} onChange={(e) => setUniSize(Number(e.target.value) || 80)} disabled={universe === "default" || universe === "custom" || universe === "index"} />
           </div>
+          <div className="field" style={{ marginBottom: 0, flex: "0 0 130px" }}>
+            <label>模型</label>
+            <select value={model} onChange={(e) => setModel(e.target.value)} style={{ padding: "9px 10px", fontSize: 13 }}>
+              <option value="lightgbm">LightGBM</option>
+              <option value="lasso">Lasso</option>
+              <option value="mlp">MLP</option>
+              <option value="ensemble">集成(三者均值)</option>
+            </select>
+          </div>
           <button className="btn primary" onClick={run} disabled={loading}>
             {loading ? <Loader2 size={14} className="spin" /> : <Sparkles size={14} />} 开始选股回测
           </button>
@@ -160,7 +183,9 @@ export default function Xsec({ strat }: { strat: Strat }) {
             <div className="panel-head">
               <span className="t">最新一日选出的股票（top-{topK}）</span>
               <span className="s">{data.picks_as_of || ""} · 打分＝模型预测的相对强弱（不是涨跌概率）</span>
+              <button className="link" onClick={recordPaper}>记录到模拟盘 →</button>
             </div>
+            {paperMsg && <div className="selected-bar" style={{ marginBottom: 10 }}>{paperMsg}</div>}
             <table className="qp-table">
               <thead><tr><th>排名</th><th style={{ textAlign: "left" }}>股票</th><th>打分</th><th>同类分位</th><th>说明</th></tr></thead>
               <tbody>

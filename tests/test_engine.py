@@ -116,3 +116,20 @@ def test_stamp_tax_only_on_sell():
     buy_fee, _ = cost.fee("buy", 10000)
     sell_fee, _ = cost.fee("sell", 10000)
     assert sell_fee > buy_fee   # 卖出多印花税
+
+
+def test_impact_cost():
+    from ashare_pred.engine.costs import TradingCost as TC
+    c = TC(impact_coef=1.0)
+    assert c.impact(1_000_000, 10_000_000) > 0
+    assert c.impact(0, 10_000_000) == 0
+    assert TC(impact_coef=0.0).impact(1_000_000, 1_000_000) == 0
+
+
+def test_live_not_ready():
+    import pytest
+    from ashare_pred.engine import LiveBroker, LiveNotReadyError, live_readiness
+    r = live_readiness()
+    assert r["ready"] is False and r["blockers"]
+    with pytest.raises(LiveNotReadyError):
+        LiveBroker()

@@ -237,7 +237,9 @@ class Broker:
                 return
 
         comm, stamp, transfer = self.cfg.cost.breakdown(side, amount)
-        fee = comm + stamp + transfer
+        adv = _lookup(turnover, sym, day)
+        impact_cost = self.cfg.cost.impact(amount, adv)
+        fee = comm + stamp + transfer + impact_cost
         self.trades.append(Trade(
             date=day, symbol=sym, name=self.account.names.get(sym, sym), side=side,
             qty=qty, price=price, amount=amount, commission=comm, stamp_tax=stamp,

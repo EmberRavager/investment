@@ -126,6 +126,20 @@ CREATE TABLE IF NOT EXISTS signals (
     target_weight REAL,
     signal TEXT
 );
+CREATE TABLE IF NOT EXISTS paper_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_id INTEGER,
+    kind TEXT DEFAULT 'xsec',
+    as_of TEXT,
+    horizon INTEGER,
+    index_symbol TEXT,
+    initial_cash REAL,
+    params_json TEXT,
+    picks_json TEXT,
+    created_at TEXT,
+    resolved_at TEXT,
+    result_json TEXT
+);
 """
 
 
@@ -413,6 +427,43 @@ class Store:
             self.save_risk_events(run_id, result.risk_events)
 
     # ---- 读取明细 ----
+    # ---- 模拟盘跟踪 ----
+    def create_paper(self, *, as_of: str, horizon: int, index_symbol: str, picks: List[Dict[str, Any]],
+                     strategy_id: Optional[int] = None, kind: str = "xsec",
+                     params: Optional[Dict[str, Any]] = None, initial_cash: float = 0.0) -> int:
+        with self._lock:
+            cur = self.conn.execute(
+                "INSERT INTO paper_snapshots (strategy_id, kind, as_of, horizon, index_symbol,"
+                " initial_cash, params_json, picks_json, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (strategy_id, kind, as_of, int(horizon), index_symbol, float(initial_cash),
+                 json.dumps(params or {}, ensure_ascii=False),
+                 json.dumps(picks, ensure_ascii=False), _now()),
+            )
+            self.conn.commit()
+            return int(cur.lastrowid)
+
+    def list_papers(self, only_pending: bool = False) -> List[Dict[str, Any]]:
+        sql = "SELECT * FROM paper_snapshots"
+        if only_pending:
+            sql += " WHERE resolved_at IS NULL"
+        sql += " ORDER BY id DESC"
+        out = []
+        for r in self.conn.execute(sql).fetchall():
+            d = dict(r)
+            d["params"] = json.loads(d.pop("params_json") or "{}")
+            d["picks"] = json.loads(d.pop("picks_json") or "[]")
+            d["result"] = json.loads(d.pop("result_json") or "null")
+            out.append(d)
+        return out
+
+    def resolve_paper(self, paper_id: int, result: Dict[str, Any]) -> None:
+        with self._lock:
+            self.conn.execute(
+                "UPDATE paper_snapshots SET resolved_at=?, result_json=? WHERE id=?",
+                (_now(), json.dumps(result, ensure_ascii=False), paper_id),
+            )
+            self.conn.commit()
+
     def get_run_detail(self, run_id: int) -> Dict[str, Any]:
         def q(sql: str):
             return [dict(r) for r in self.conn.execute(sql, (run_id,)).fetchall()]
